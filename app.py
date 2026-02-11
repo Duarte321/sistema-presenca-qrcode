@@ -11,6 +11,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import json
 import os
+try:
+    from streamlit_qrcode_scanner import qrcode_scanner
+except ImportError:
+    qrcode_scanner = None
 
 # --- Configuração da Página ---
 st.set_page_config(page_title="Check-in QR Code", layout="centered")
@@ -48,7 +52,7 @@ def salvar_config(nome, data, hora, filtro_tipo, filtro_valores):
 
 def filtrar_participantes_convocados(df, config):
     if not config:
-        return df # Se não tiver config, todo mundo entra
+        return df 
     
     tipo = config.get("filtro_tipo", "Todos")
     valores = config.get("filtro_valores", [])
@@ -64,7 +68,7 @@ def filtrar_participantes_convocados(df, config):
     
     return df
 
-def processar_qr_code(imagem):
+def processar_qr_code_imagem(imagem):
     bytes_data = imagem.getvalue()
     cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
     decoded_objects = decode(cv2_img)
@@ -97,7 +101,6 @@ def gerar_pdf(df_presenca, resumo_cargo, resumo_local, nome_reuniao):
         except:
             return str(texto)
 
-    # Resumos
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, "RESUMO GERAL", ln=True)
     pdf.set_font("Arial", size=10)
@@ -113,7 +116,6 @@ def gerar_pdf(df_presenca, resumo_cargo, resumo_local, nome_reuniao):
 
     pdf.ln(10)
     
-    # Lista
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, "LISTA DE PRESENTES", ln=True)
     
@@ -149,7 +151,6 @@ def gerar_excel(df_presenca, resumo_cargo, resumo_local, nome_reuniao):
     header_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
     border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
     
-    # Aba Resumo
     ws_resumo = workbook.create_sheet("Resumo", 0)
     ws_resumo['A1'] = f"Relatório: {nome_reuniao}"
     ws_resumo['A1'].font = Font(name='Calibri', size=14, bold=True)
@@ -166,12 +167,10 @@ def gerar_excel(df_presenca, resumo_cargo, resumo_local, nome_reuniao):
         
     for cargo, qtd in resumo_cargo.items():
         ws_resumo.append([cargo, int(qtd)])
-        # Aplica borda na linha adicionada
         for cell in ws_resumo[ws_resumo.max_row]:
             cell.border = border
             cell.alignment = Alignment(horizontal='center')
             
-    # Aba Lista
     ws_lista = workbook.create_sheet("Lista Nominal", 1)
     headers = ['ID', 'Nome', 'Cargo', 'Localidade', 'Horário']
     ws_lista.append(headers)
@@ -191,6 +190,39 @@ def gerar_excel(df_presenca, resumo_cargo, resumo_local, nome_reuniao):
     workbook.save(excel_bytes)
     excel_bytes.seek(0)
     return excel_bytes.getvalue()
+
+def registrar_presenca(codigo_lido, db_participantes, ids_permitidos):
+    # Lógica centralizada de registro
+    participante_geral = db_participantes[db_participantes['ID'] == codigo_lido]
+    
+    if not participante_geral.empty:
+        nome = participante_geral.iloc[0]['Nome']
+        id_p = participante_geral.iloc[0]['ID']
+        
+        # Verifica se está na lista de convocados da reunião atual
+        if id_p in ids_permitidos:
+            if id_p not in st.session_state.lista_presenca['ID'].values:
+                hora_mt = obter_hora_atual().strftime("%H:%M:%S")
+                novo_registro = {
+                    'ID': id_p,
+                    'Nome': nome,
+                    'Cargo': participante_geral.iloc[0]['Cargo'],
+                    'Localidade': participante_geral.iloc[0]['Localidade'],
+                    'Horario': hora_mt
+                }
+                novo_df = pd.DataFrame([novo_registro])
+                st.session_state.lista_presenca = pd.concat([st.session_state.lista_presenca, novo_df], ignore_index=True)
+                st.success(f"✅ {nome} registrado com sucesso!")
+                return True
+            else:
+                st.warning(f"⚠️ {nome} já está na lista.")
+                return False
+        else:
+            st.error(f"⛔ {nome} NÃO consta na lista de convocação para esta reunião!")
+            return False
+    else:
+        st.error(f"❌ Código '{codigo_lido}' não encontrado no banco de dados.")
+        return False
 
 # --- Início do App ---
 db_participantes = carregar_dados()
@@ -267,40 +299,27 @@ if 'lista_presenca' not in st.session_state:
     st.session_state.lista_presenca = pd.DataFrame(columns=['ID', 'Nome', 'Cargo', 'Localidade', 'Horario'])
 
 st.divider()
-st.markdown("### 📷 Escanear QR Code")
-img_file_buffer = st.camera_input("Aponte para o QR Code")
+st.markdown("### 📷 Leitura de QR Code")
 
-if img_file_buffer:
-    codigo_lido = processar_qr_code(img_file_buffer)
-    
-    if codigo_lido:
-        # Verifica se o código existe no banco geral
-        participante_geral = db_participantes[db_participantes['ID'] == codigo_lido]
-        
-        if not participante_geral.empty:
-            nome = participante_geral.iloc[0]['Nome']
-            id_p = participante_geral.iloc[0]['ID']
-            
-            # Verifica se está na lista de convocados da reunião atual
-            if id_p in ids_permitidos:
-                if id_p not in st.session_state.lista_presenca['ID'].values:
-                    hora_mt = obter_hora_atual().strftime("%H:%M:%S")
-                    novo_registro = {
-                        'ID': id_p,
-                        'Nome': nome,
-                        'Cargo': participante_geral.iloc[0]['Cargo'],
-                        'Localidade': participante_geral.iloc[0]['Localidade'],
-                        'Horario': hora_mt
-                    }
-                    novo_df = pd.DataFrame([novo_registro])
-                    st.session_state.lista_presenca = pd.concat([st.session_state.lista_presenca, novo_df], ignore_index=True)
-                    st.success(f"✅ {nome} registrado com sucesso!")
-                else:
-                    st.warning(f"⚠️ {nome} já está na lista.")
-            else:
-                st.error(f"⛔ {nome} NÃO consta na lista de convocação para esta reunião!")
-        else:
-            st.error(f"❌ Código '{codigo_lido}' não encontrado no banco de dados.")
+# Abas para escolher o método
+tab_auto, tab_manual = st.tabs(["⚡ Leitura Automática", "📷 Câmera Manual / Foto"])
+
+with tab_auto:
+    st.markdown("**Aponte a câmera para ler automaticamente:**")
+    if qrcode_scanner:
+        qr_code_auto = qrcode_scanner(key='scanner_auto')
+        if qr_code_auto:
+            registrar_presenca(qr_code_auto, db_participantes, ids_permitidos)
+    else:
+        st.warning("Biblioteca 'streamlit-qrcode-scanner' não instalada. Use a aba Manual.")
+
+with tab_manual:
+    st.markdown("**Tire uma foto do QR Code:**")
+    img_file_buffer = st.camera_input("Tirar Foto")
+    if img_file_buffer:
+        codigo_lido = processar_qr_code_imagem(img_file_buffer)
+        if codigo_lido:
+            registrar_presenca(codigo_lido, db_participantes, ids_permitidos)
 
 # Exibição e Exportação
 if not st.session_state.lista_presenca.empty:
