@@ -6,6 +6,10 @@ from pyzbar.pyzbar import decode
 from fpdf import FPDF
 from datetime import datetime
 import pytz  # Biblioteca para fuso horário
+from io import BytesIO
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 # --- Configuração da Página ---
 st.set_page_config(page_title="Check-in QR Code", layout="centered")
@@ -106,6 +110,122 @@ def gerar_pdf(df_presenca, resumo_cargo, resumo_local):
     # Retorna os bytes do PDF diretamente
     return bytes(pdf.output())
 
+def gerar_excel(df_presenca, resumo_cargo, resumo_local):
+    """
+    Gera uma planilha Excel com os dados de presença, resumos e estilos profissionais
+    """
+    workbook = Workbook()
+    
+    # Remove a planilha padrão e cria novas
+    workbook.remove(workbook.active)
+    
+    # Estilos
+    header_font = Font(name='Calibri', size=12, bold=True, color='FFFFFF')
+    header_fill = PatternFill(start_color='1F4E78', end_color='1F4E78', fill_type='solid')
+    header_alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    
+    border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    
+    # --- PLANILHA 1: RESUMO ---
+    ws_resumo = workbook.create_sheet("Resumo", 0)
+    
+    # Título
+    ws_resumo['A1'] = f"Relatório de Presença - {obter_hora_atual().strftime('%d/%m/%Y')}"
+    ws_resumo['A1'].font = Font(name='Calibri', size=14, bold=True)
+    ws_resumo.merge_cells('A1:D1')
+    
+    ws_resumo['A3'] = "RESUMO POR CARGO"
+    ws_resumo['A3'].font = Font(size=11, bold=True)
+    
+    row = 4
+    ws_resumo['A4'] = "Cargo"
+    ws_resumo['B4'] = "Quantidade"
+    for cell in [ws_resumo['A4'], ws_resumo['B4']]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = border
+    
+    for cargo, qtd in resumo_cargo.items():
+        ws_resumo[f'A{row}'] = cargo
+        ws_resumo[f'B{row}'] = int(qtd)
+        for col in ['A', 'B']:
+            ws_resumo[f'{col}{row}'].border = border
+            ws_resumo[f'{col}{row}'].alignment = Alignment(horizontal='center')
+        row += 1
+    
+    # Resumo por Localidade
+    row += 2
+    ws_resumo[f'A{row}'] = "RESUMO POR LOCALIDADE"
+    ws_resumo[f'A{row}'].font = Font(size=11, bold=True)
+    
+    row += 1
+    ws_resumo[f'A{row}'] = "Localidade"
+    ws_resumo[f'B{row}'] = "Quantidade"
+    for cell in [ws_resumo[f'A{row}'], ws_resumo[f'B{row}']]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = border
+    
+    row += 1
+    for local, qtd in resumo_local.items():
+        ws_resumo[f'A{row}'] = local
+        ws_resumo[f'B{row}'] = int(qtd)
+        for col in ['A', 'B']:
+            ws_resumo[f'{col}{row}'].border = border
+            ws_resumo[f'{col}{row}'].alignment = Alignment(horizontal='center')
+        row += 1
+    
+    # Ajusta largura das colunas
+    ws_resumo.column_dimensions['A'].width = 40
+    ws_resumo.column_dimensions['B'].width = 15
+    
+    # --- PLANILHA 2: LISTA NOMINAL ---
+    ws_lista = workbook.create_sheet("Lista Nominal", 1)
+    
+    # Cabeçalho
+    headers = ['ID', 'Nome', 'Cargo', 'Localidade', 'Horário']
+    for col_num, header in enumerate(headers, 1):
+        cell = ws_lista.cell(row=1, column=col_num)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_alignment
+        cell.border = border
+    
+    # Dados
+    for row_num, (index, row) in enumerate(df_presenca.iterrows(), 2):
+        ws_lista.cell(row=row_num, column=1, value=row['ID'])
+        ws_lista.cell(row=row_num, column=2, value=row['Nome'])
+        ws_lista.cell(row=row_num, column=3, value=row['Cargo'])
+        ws_lista.cell(row=row_num, column=4, value=row['Localidade'])
+        ws_lista.cell(row=row_num, column=5, value=row['Horario'])
+        
+        for col_num in range(1, 6):
+            cell = ws_lista.cell(row=row_num, column=col_num)
+            cell.border = border
+            cell.alignment = Alignment(horizontal='left', vertical='center')
+    
+    # Ajusta largura das colunas
+    ws_lista.column_dimensions['A'].width = 12
+    ws_lista.column_dimensions['B'].width = 35
+    ws_lista.column_dimensions['C'].width = 20
+    ws_lista.column_dimensions['D'].width = 25
+    ws_lista.column_dimensions['E'].width = 12
+    
+    # Salva em bytes
+    excel_bytes = BytesIO()
+    workbook.save(excel_bytes)
+    excel_bytes.seek(0)
+    
+    return excel_bytes.getvalue()
+
 # --- Início do App ---
 st.title("📲 Check-in Reunião CCB")
 
@@ -174,10 +294,12 @@ if not st.session_state.lista_presenca.empty:
     )
     
     st.divider()
+    st.markdown("### 💾 Exportar Dados")
     
-    col_btn1, col_btn2 = st.columns(2)
+    col_btn1, col_btn2, col_btn3 = st.columns(3)
+    
     with col_btn1:
-        if st.button("📄 Gerar Relatório PDF"):
+        if st.button("📄 Gerar PDF"):
             pdf_bytes = gerar_pdf(st.session_state.lista_presenca, resumo_cargo, resumo_local)
             st.download_button(
                 label="⬇️ Baixar PDF",
@@ -185,7 +307,18 @@ if not st.session_state.lista_presenca.empty:
                 file_name=f"presenca_{obter_hora_atual().strftime('%Y-%m-%d')}.pdf",
                 mime="application/pdf"
             )
+    
     with col_btn2:
+        if st.button("📋 Gerar Excel"):
+            excel_bytes = gerar_excel(st.session_state.lista_presenca, resumo_cargo, resumo_local)
+            st.download_button(
+                label="⬇️ Baixar Excel",
+                data=excel_bytes,
+                file_name=f"presenca_{obter_hora_atual().strftime('%Y-%m-%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+    
+    with col_btn3:
         if st.button("🗑️ Limpar Lista"):
             st.session_state.lista_presenca = pd.DataFrame(columns=['ID', 'Nome', 'Cargo', 'Localidade', 'Horario'])
             st.rerun()
