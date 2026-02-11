@@ -305,9 +305,8 @@ tab_auto, tab_manual = st.tabs(["⚡ Leitura Automática", "📷 Câmera Manual 
 with tab_auto:
     st.markdown("**Aponte a câmera para ler automaticamente:**")
     if qrcode_scanner:
-        # Configuração do scanner para evitar tela preta em mobile
-        # width: 250px para focar o tamanho da leitura (tamanho de um QR Code médio)
-        qr_code_auto = qrcode_scanner(key='scanner_auto', width=300)
+        # Biblioteca aceita apenas key, sem parâmetros de tamanho
+        qr_code_auto = qrcode_scanner(key='scanner_auto')
         
         if qr_code_auto:
             registrar_presenca(qr_code_auto, db_participantes, ids_permitidos)
