@@ -50,6 +50,12 @@ def salvar_config(nome, data, hora, filtro_tipo, filtro_valores):
         json.dump(config, f, ensure_ascii=False, indent=4)
     return config
 
+def excluir_config():
+    if os.path.exists(CONFIG_FILE):
+        os.remove(CONFIG_FILE)
+        return True
+    return False
+
 def filtrar_participantes_convocados(df, config):
     if not config:
         return df 
@@ -229,6 +235,7 @@ config_reuniao = carregar_config()
 # --- SIDEBAR: Configuração da Reunião ---
 st.sidebar.header("⚙️ Configurar Reunião")
 
+# Variáveis para o formulário
 if config_reuniao:
     nome_padrao = config_reuniao.get("nome", "")
     data_padrao_str = config_reuniao.get("data", datetime.now().strftime('%Y-%m-%d'))
@@ -241,6 +248,13 @@ if config_reuniao:
     except:
         data_padrao = datetime.now().date()
         hora_padrao = datetime.now().time()
+    
+    # Botão de Excluir fora do formulário para funcionar independentemente
+    if st.sidebar.button("🗑️ Excluir Reunião Atual", type="primary"):
+        excluir_config()
+        st.session_state.lista_presenca = pd.DataFrame(columns=['ID', 'Nome', 'Cargo', 'Localidade', 'Horario'])
+        st.sidebar.success("Reunião excluída!")
+        st.rerun()
 else:
     nome_padrao = ""
     data_padrao = datetime.now().date()
@@ -249,24 +263,40 @@ else:
     valores_padrao = []
 
 with st.sidebar.form("form_reuniao"):
+    st.markdown("### " + ("✏️ Editar" if config_reuniao else "➕ Criar Nova"))
     nome_input = st.text_input("Nome da Reunião", value=nome_padrao, placeholder="Ex: Ensaio Regional")
     data_input = st.date_input("Data", value=data_padrao)
     hora_input = st.time_input("Horário", value=hora_padrao)
     
     st.divider()
     st.markdown("**Quem deve participar?**")
-    filtro_tipo = st.radio("Convocar por:", ["Todos", "Por Cargo", "Por Localidade", "Manual"], index=["Todos", "Por Cargo", "Por Localidade", "Manual"].index(filtro_padrao))
+    
+    # Índices para o radio button
+    opcoes_radio = ["Todos", "Por Cargo", "Por Localidade", "Manual"]
+    try:
+        idx_radio = opcoes_radio.index(filtro_padrao)
+    except ValueError:
+        idx_radio = 0
+        
+    filtro_tipo = st.radio("Convocar por:", opcoes_radio, index=idx_radio)
     
     opcoes_filtro = []
     if filtro_tipo == "Por Cargo":
         opcoes = db_participantes['Cargo'].unique().tolist() if not db_participantes.empty else []
-        opcoes_filtro = st.multiselect("Selecione os Cargos:", options=opcoes, default=valores_padrao if filtro_tipo=="Por Cargo" else [])
+        default_vals = valores_padrao if filtro_tipo == "Por Cargo" else []
+        # Garante que os valores padrão existam nas opções atuais
+        default_vals = [v for v in default_vals if v in opcoes]
+        opcoes_filtro = st.multiselect("Selecione os Cargos:", options=opcoes, default=default_vals)
     elif filtro_tipo == "Por Localidade":
         opcoes = db_participantes['Localidade'].unique().tolist() if not db_participantes.empty else []
-        opcoes_filtro = st.multiselect("Selecione as Localidades:", options=opcoes, default=valores_padrao if filtro_tipo=="Por Localidade" else [])
+        default_vals = valores_padrao if filtro_tipo == "Por Localidade" else []
+        default_vals = [v for v in default_vals if v in opcoes]
+        opcoes_filtro = st.multiselect("Selecione as Localidades:", options=opcoes, default=default_vals)
     elif filtro_tipo == "Manual":
         opcoes = db_participantes['Nome'].unique().tolist() if not db_participantes.empty else []
-        opcoes_filtro = st.multiselect("Selecione os Nomes:", options=opcoes, default=valores_padrao if filtro_tipo=="Manual" else [])
+        default_vals = valores_padrao if filtro_tipo == "Manual" else []
+        default_vals = [v for v in default_vals if v in opcoes]
+        opcoes_filtro = st.multiselect("Selecione os Nomes:", options=opcoes, default=default_vals)
     
     submitted = st.form_submit_button("💾 Salvar Configuração")
     
@@ -276,7 +306,6 @@ with st.sidebar.form("form_reuniao"):
         else:
             valores_salvar = opcoes_filtro if filtro_tipo != "Todos" else []
             novo_config = salvar_config(nome_input, data_input, hora_input, filtro_tipo, valores_salvar)
-            config_reuniao = novo_config
             st.success("Configuração salva com sucesso!")
             st.rerun()
 
