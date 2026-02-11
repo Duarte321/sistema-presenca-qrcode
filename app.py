@@ -102,8 +102,9 @@ def gerar_pdf(df_presenca, resumo_cargo, resumo_local):
         pdf.cell(col_w[1], 8, texto_pdf(cargo), 1)
         pdf.cell(col_w[2], 8, texto_pdf(local), 1)
         pdf.cell(col_w[3], 8, horario, 1, 1)
-        
-    return pdf.output(dest='S').encode('latin-1')
+    
+    # Retorna os bytes do PDF diretamente
+    return bytes(pdf.output())
 
 # --- Início do App ---
 st.title("📲 Check-in Reunião CCB")
