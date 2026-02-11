@@ -192,14 +192,12 @@ def gerar_excel(df_presenca, resumo_cargo, resumo_local, nome_reuniao):
     return excel_bytes.getvalue()
 
 def registrar_presenca(codigo_lido, db_participantes, ids_permitidos):
-    # Lógica centralizada de registro
     participante_geral = db_participantes[db_participantes['ID'] == codigo_lido]
     
     if not participante_geral.empty:
         nome = participante_geral.iloc[0]['Nome']
         id_p = participante_geral.iloc[0]['ID']
         
-        # Verifica se está na lista de convocados da reunião atual
         if id_p in ids_permitidos:
             if id_p not in st.session_state.lista_presenca['ID'].values:
                 hora_mt = obter_hora_atual().strftime("%H:%M:%S")
@@ -307,7 +305,10 @@ tab_auto, tab_manual = st.tabs(["⚡ Leitura Automática", "📷 Câmera Manual 
 with tab_auto:
     st.markdown("**Aponte a câmera para ler automaticamente:**")
     if qrcode_scanner:
-        qr_code_auto = qrcode_scanner(key='scanner_auto')
+        # Configuração do scanner para evitar tela preta em mobile
+        # width: 250px para focar o tamanho da leitura (tamanho de um QR Code médio)
+        qr_code_auto = qrcode_scanner(key='scanner_auto', width=300)
+        
         if qr_code_auto:
             registrar_presenca(qr_code_auto, db_participantes, ids_permitidos)
     else:
