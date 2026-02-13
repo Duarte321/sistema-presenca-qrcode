@@ -11,13 +11,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import json
 import os
-try:
-    from streamlit_qrcode_scanner import qrcode_scanner
-except ImportError:
-    qrcode_scanner = None
 
 # --- Configuração da Página ---
-# Alterado para "wide" para aumentar o tamanho da câmera
 st.set_page_config(page_title="Check-in QR Code", layout="wide")
 
 MEETINGS_FILE = "reunioes.json"
@@ -546,31 +541,18 @@ ids_permitidos = set(convocados_df["ID"].values.tolist()) if not convocados_df.e
 st.divider()
 st.markdown("### 📷 Leitura de QR Code")
 
-# Aqui garantimos que usamos a largura total
-tab_auto, tab_manual = st.tabs(["⚡ Leitura Automática", "📷 Câmera Manual / Foto"])
+# Remover abas e usar apenas a câmera nativa que é compatível com mobile
+st.info("Aponte a câmera para o QR Code para registrar a presença.")
+img = st.camera_input("📷 Ativar Câmera")
 
-with tab_auto:
-    st.markdown("Aponte a câmera para ler automaticamente.")
-    # Coluna centralizada se quiser manter aspecto ou full
-    col_cam, _ = st.columns([2, 1])
-    with col_cam:
-        if qrcode_scanner:
-            qr_code_auto = qrcode_scanner(key="scanner_auto")
-            if qr_code_auto:
-                registrar_presenca(qr_code_auto, df_participantes, ids_permitidos, reuniao_ativa["id"])
-        else:
-            st.warning("Scanner automático indisponível neste ambiente. Use a aba de foto.")
+if img:
+    codigo = processar_qr_code_imagem(img)
+    if codigo:
+        registrar_presenca(codigo, df_participantes, ids_permitidos, reuniao_ativa["id"])
+    else:
+        # Se não leu na primeira tentativa, às vezes é o foco. Avisa sutilmente.
+        st.warning("QR Code não detectado. Tente aproximar ou melhorar a iluminação.")
 
-with tab_manual:
-    st.markdown("Tire uma foto do QR Code (modo mais compatível em celular).")
-    # Usa coluna maior para a câmera
-    col_foto, _ = st.columns([3, 1])
-    with col_foto:
-        img = st.camera_input("Tirar foto")
-        if img:
-            codigo = processar_qr_code_imagem(img)
-            if codigo:
-                registrar_presenca(codigo, df_participantes, ids_permitidos, reuniao_ativa["id"])
 
 if not st.session_state.lista_presenca.empty:
     st.divider()
