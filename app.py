@@ -11,8 +11,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import json
 import os
-import av
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+try:
+    from streamlit_qrcode_scanner import qrcode_scanner
+except ImportError:
+    qrcode_scanner = None
 
 # --- Configuração da Página ---
 st.set_page_config(page_title="Check-in QR Code", layout="wide")
@@ -20,30 +22,6 @@ st.set_page_config(page_title="Check-in QR Code", layout="wide")
 MEETINGS_FILE = "reunioes.json"
 PRESENCE_FILE = "presencas.csv"
 LEGACY_CONFIG_FILE = "reuniao_config.json"
-
-# --- Configuração WebRTC (Leitura Automática) ---
-RTC_CONFIGURATION = RTCConfiguration(
-    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-)
-
-class QRCodeDetector:
-    def __init__(self):
-        self.last_code = None
-
-    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
-        image = frame.to_ndarray(format="bgr24")
-        decoded_objects = decode(image)
-        for obj in decoded_objects:
-            self.last_code = obj.data.decode("utf-8").strip()
-        
-        # Desenha retângulo verde
-        for obj in decoded_objects:
-            points = obj.polygon
-            if len(points) == 4:
-                pts = np.array(points, dtype=np.int32)
-                cv2.polylines(image, [pts], True, (0, 255, 0), 3)
-                
-        return av.VideoFrame.from_ndarray(image, format="bgr24")
 
 # --- Funções de Data/Hora ---
 
@@ -560,31 +538,26 @@ if not reuniao_ativa:
 
 # --- Check-in ---
 st.title(f"📲 {reuniao_ativa.get('nome')}")
-st.info("Escolha abaixo o método de leitura.")
 
-tab_auto, tab_manual = st.tabs(["⚡ Leitura Automática (PC)", "📷 Tirar Foto (Celular)"])
+# Abas restauradas conforme pedido
+tab_auto, tab_manual = st.tabs(["⚡ Leitura Automática", "📷 Câmera Manual / Foto"])
 
 with tab_auto:
-    st.markdown("Recomendado para computadores e notebooks.")
-    ctx = webrtc_streamer(
-        key="scanner_webrtc",
-        mode=WebRtcMode.SENDRECV,
-        rtc_configuration=RTC_CONFIGURATION,
-        video_processor_factory=QRCodeDetector,
-        media_stream_constraints={"video": True, "audio": False},
-        async_processing=True,
-    )
-
-    if ctx.video_processor:
-        if ctx.video_processor.last_code:
-            codigo = ctx.video_processor.last_code
-            if registrar_presenca(codigo, df_participantes, ids_permitidos, reuniao_ativa["id"]):
-                 st.session_state.active_meeting_id = st.session_state.active_meeting_id # Trigger rerun logic indirectly or just let toast show
+    st.markdown("Aponte a câmera para ler automaticamente.")
+    
+    # Verifica se o componente carregou
+    if qrcode_scanner:
+        # Usa o componente original que o usuário gostava
+        qr_code_auto = qrcode_scanner(key="scanner_auto")
+        if qr_code_auto:
+            if registrar_presenca(qr_code_auto, df_participantes, ids_permitidos, reuniao_ativa["id"]):
+                 st.rerun()
+    else:
+        st.error("Componente de scanner automático não instalado corretamente.")
 
 with tab_manual:
-    st.markdown("Recomendado para celulares (Android/iOS).")
-    st.warning("Selecione 'Câmera Traseira' nas opções que aparecerem ao clicar.")
-    
+    st.markdown("Recomendado para celulares (Android/iOS) - Compatibilidade Total")
+    # Mantém o modo foto simples e robusto
     key_camera = f"camera_{st.session_state.camera_key}"
     img = st.camera_input("📷 Tirar Foto", key=key_camera)
 
@@ -596,7 +569,7 @@ with tab_manual:
                 st.session_state.camera_key += 1
                 st.rerun()
         else:
-            st.error("QR Code não detectado. Tente aproximar ou focar melhor.")
+            st.error("QR Code não detectado na imagem. Tente aproximar ou melhorar a luz.")
 
 # --- Área de Resultados ---
 if not st.session_state.lista_presenca.empty:
