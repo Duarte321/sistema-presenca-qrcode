@@ -197,12 +197,27 @@ def filtrar_participantes_convocados(df, reuniao):
         return df[df["Nome"].isin(valores)]
     return df
 
-# --- QR (foto fallback) ---
+# --- QR (foto fallback) - OTIMIZADO ---
 
 def processar_qr_code_imagem(imagem):
+    # Lê a imagem em bytes
     bytes_data = imagem.getvalue()
+    # Decodifica para array NumPy
     cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
-    decoded_objects = decode(cv2_img)
+    
+    # OTIMIZAÇÃO: Reduz resolução se for muito grande (comum em celulares)
+    height, width = cv2_img.shape[:2]
+    if width > 1200:
+        scale = 1200 / width
+        new_width = 1200
+        new_height = int(height * scale)
+        cv2_img = cv2.resize(cv2_img, (new_width, new_height), interpolation=cv2.INTER_AREA)
+
+    # OTIMIZAÇÃO: Converte para escala de cinza (mais rápido para decodificar)
+    gray_img = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2GRAY)
+
+    # Decodifica
+    decoded_objects = decode(gray_img)
     if decoded_objects:
         return decoded_objects[0].data.decode("utf-8").strip()
     return None
