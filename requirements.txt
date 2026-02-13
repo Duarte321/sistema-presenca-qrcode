@@ -6,3 +6,4 @@ numpy
 pyzbar
 pytz
 openpyxl
+streamlit-back-camera-input
