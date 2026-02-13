@@ -6,4 +6,5 @@ numpy
 pyzbar
 pytz
 openpyxl
-streamlit-qrcode-scanner
+streamlit-webrtc
+av
