@@ -11,8 +11,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import json
 import os
-import av
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+import time as time_lib
 
 # --- Configuração da Página ---
 st.set_page_config(page_title="Check-in QR Code", layout="wide")
@@ -20,30 +19,6 @@ st.set_page_config(page_title="Check-in QR Code", layout="wide")
 MEETINGS_FILE = "reunioes.json"
 PRESENCE_FILE = "presencas.csv"
 LEGACY_CONFIG_FILE = "reuniao_config.json"
-
-# --- Configuração WebRTC (Correção Mobile) ---
-RTC_CONFIGURATION = RTCConfiguration(
-    {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-)
-
-class QRCodeDetector:
-    def __init__(self):
-        self.last_code = None
-
-    def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
-        image = frame.to_ndarray(format="bgr24")
-        decoded_objects = decode(image)
-        for obj in decoded_objects:
-            self.last_code = obj.data.decode("utf-8").strip()
-        
-        # Opcional: Desenhar retângulo no vídeo
-        for obj in decoded_objects:
-            points = obj.polygon
-            if len(points) == 4:
-                pts = np.array(points, dtype=np.int32)
-                cv2.polylines(image, [pts], True, (0, 255, 0), 3)
-                
-        return av.VideoFrame.from_ndarray(image, format="bgr24")
 
 # --- Funções de Data/Hora ---
 
@@ -380,9 +355,8 @@ def registrar_presenca(codigo_lido, df_participantes, ids_permitidos, meeting_id
         return False
 
     if id_p in st.session_state.lista_presenca["ID"].values:
-        # Apenas aviso, não erro
-        # st.warning(f"⚠️ {nome} já está na lista.")
-        return False
+        st.warning(f"⚠️ {nome} já está na lista.")
+        return True # Retorna True para não travar o fluxo
 
     hora_registro = obter_hora_atual().strftime("%H:%M:%S")
     novo_registro = {
@@ -399,8 +373,9 @@ def registrar_presenca(codigo_lido, df_participantes, ids_permitidos, meeting_id
         [st.session_state.lista_presenca, pd.DataFrame([novo_registro])],
         ignore_index=True,
     )
-
-    st.success(f"✅ {nome} registrado!")
+    
+    # Exibe mensagem de sucesso temporária
+    st.toast(f"✅ {nome} registrado com sucesso!", icon="✅")
     return True
 
 # ==========================
@@ -415,6 +390,9 @@ if "active_meeting_id" not in st.session_state:
 
 if "lista_presenca" not in st.session_state:
     st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
+    
+if "camera_key" not in st.session_state:
+    st.session_state.camera_key = 0
 
 hoje = date.today().strftime("%Y-%m-%d")
 
@@ -566,40 +544,27 @@ ids_permitidos = set(convocados_df["ID"].values.tolist()) if not convocados_df.e
 st.divider()
 st.markdown("### 📷 Leitura de QR Code")
 
-# Abas restauradas
-tab_auto, tab_manual = st.tabs(["⚡ Leitura Automática", "📷 Câmera Manual / Foto"])
+# Layout de Câmera "Modo Contínuo"
+st.info("Aponte a câmera. Ao tirar a foto, o registro é automático e a câmera reinicia.")
+col_cam_main, _ = st.columns([3, 1])
 
-with tab_auto:
-    st.markdown("Aponte a câmera para ler automaticamente.")
-    
-    # Contexto WebRTC com configuração STUN
-    ctx = webrtc_streamer(
-        key="scanner_webrtc",
-        mode=WebRtcMode.SENDRECV,
-        rtc_configuration=RTC_CONFIGURATION,
-        video_processor_factory=QRCodeDetector,
-        media_stream_constraints={"video": {"facingMode": "environment"}}, # Preferir traseira
-        async_processing=True,
-    )
+with col_cam_main:
+    # Usando key dinâmica para resetar o componente
+    key_camera = f"camera_{st.session_state.camera_key}"
+    img = st.camera_input("📷 Tirar Foto", key=key_camera)
 
-    if ctx.video_processor:
-        if ctx.video_processor.last_code:
-            codigo = ctx.video_processor.last_code
-            if registrar_presenca(codigo, df_participantes, ids_permitidos, reuniao_ativa["id"]):
-                # Opcional: limpar last_code para não ficar registrando em loop?
-                # Como a função registrar_presenca bloqueia duplicados, ok.
-                pass
-
-with tab_manual:
-    st.markdown("Tire uma foto do QR Code (modo compatibilidade total).")
-    img = st.camera_input("📷 Ativar Câmera")
-    if img:
-        codigo = processar_qr_code_imagem(img)
-        if codigo:
-            registrar_presenca(codigo, df_participantes, ids_permitidos, reuniao_ativa["id"])
-        else:
-            st.warning("QR Code não detectado na imagem. Tente melhorar o foco ou luz.")
-
+if img:
+    codigo = processar_qr_code_imagem(img)
+    if codigo:
+        sucesso = registrar_presenca(codigo, df_participantes, ids_permitidos, reuniao_ativa["id"])
+        if sucesso:
+            # Incrementa key para "limpar" a câmera forçadamente e permitir próxima leitura
+            st.session_state.camera_key += 1
+            st.rerun()
+    else:
+        st.error("QR Code não detectado. Tente novamente.")
+        # Se falhar, talvez não queira resetar instantaneamente para a pessoa ver o erro?
+        # Mas para ser rápido, vamos deixar o erro na tela e permitir nova foto.
 
 if not st.session_state.lista_presenca.empty:
     st.divider()
