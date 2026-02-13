@@ -577,41 +577,47 @@ with tab_manual:
 
 # --- Área de Resultados ---
 if not st.session_state.lista_presenca.empty:
-    st.markdown("---")
+    st.divider()
     
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Total Presente", len(st.session_state.lista_presenca))
-    with col2:
-        # Mostra o último registrado
-        ultimo = st.session_state.lista_presenca.iloc[-1]
-        st.metric("Último Registro", f"{ultimo['Nome'].split()[0]} ({ultimo['Horario'][:5]})")
+    # Resumos Visuais (Restaurado)
+    st.markdown("### 📊 Resumo")
+    resumo_cargo = st.session_state.lista_presenca["Cargo"].value_counts()
+    resumo_local = st.session_state.lista_presenca["Localidade"].value_counts()
+    
+    col_r1, col_r2 = st.columns(2)
+    with col_r1:
+        st.dataframe(resumo_cargo, use_container_width=True)
+    with col_r2:
+        st.dataframe(resumo_local, use_container_width=True)
 
-    with st.expander("Ver lista completa e exportar"):
-        st.dataframe(
-            st.session_state.lista_presenca[["Nome", "Cargo", "Horario"]],
-            use_container_width=True,
-            hide_index=True,
-        )
+    st.divider()
+    
+    # Lista Completa (Visível, sem expander)
+    st.markdown("### 📝 Lista de Presentes")
+    
+    # Adicionada Localidade de volta na visualização
+    st.dataframe(
+        st.session_state.lista_presenca[["Nome", "Cargo", "Localidade", "Horario"]],
+        use_container_width=True,
+        hide_index=True,
+    )
 
-        colA, colB, colC = st.columns(3)
-        nome_arquivo = f"{reuniao_ativa.get('data','')}_{reuniao_ativa.get('hora','')}_{reuniao_ativa.get('nome','reuniao')}".replace(" ", "_")
-        
-        with colA:
-            if st.button("📄 PDF"):
-                # Recalcula resumos para o relatório
-                resumo_cargo = st.session_state.lista_presenca["Cargo"].value_counts()
-                resumo_local = st.session_state.lista_presenca["Localidade"].value_counts()
-                pdf_data = gerar_pdf(st.session_state.lista_presenca, resumo_cargo, resumo_local, reuniao_ativa.get("nome", "Reunião"))
-                st.download_button("Baixar PDF", data=pdf_data, file_name=f"{nome_arquivo}.pdf", mime="application/pdf")
-        with colB:
-            if st.button("📋 Excel"):
-                resumo_cargo = st.session_state.lista_presenca["Cargo"].value_counts()
-                resumo_local = st.session_state.lista_presenca["Localidade"].value_counts()
-                excel_data = gerar_excel(st.session_state.lista_presenca, resumo_cargo, resumo_local, reuniao_ativa.get("nome", "Reunião"))
-                st.download_button("Baixar Excel", data=excel_data, file_name=f"{nome_arquivo}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        with colC:
-             if st.button("🗑️ Limpar"):
-                if limpar_presencas_reuniao_csv(reuniao_ativa["id"]):
-                    st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
-                    st.rerun()
+    st.divider()
+
+    colA, colB, colC = st.columns(3)
+    nome_arquivo = f"{reuniao_ativa.get('data','')}_{reuniao_ativa.get('hora','')}_{reuniao_ativa.get('nome','reuniao')}".replace(" ", "_")
+    
+    with colA:
+        if st.button("📄 PDF"):
+            # Recalcula resumos para o relatório
+            pdf_data = gerar_pdf(st.session_state.lista_presenca, resumo_cargo, resumo_local, reuniao_ativa.get("nome", "Reunião"))
+            st.download_button("Baixar PDF", data=pdf_data, file_name=f"{nome_arquivo}.pdf", mime="application/pdf")
+    with colB:
+        if st.button("📋 Excel"):
+            excel_data = gerar_excel(st.session_state.lista_presenca, resumo_cargo, resumo_local, reuniao_ativa.get("nome", "Reunião"))
+            st.download_button("Baixar Excel", data=excel_data, file_name=f"{nome_arquivo}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    with colC:
+         if st.button("🗑️ Limpar"):
+            if limpar_presencas_reuniao_csv(reuniao_ativa["id"]):
+                st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
+                st.rerun()
