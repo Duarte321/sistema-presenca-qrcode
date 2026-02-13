@@ -20,6 +20,7 @@ except ImportError:
 st.set_page_config(page_title="Check-in QR Code", layout="centered")
 
 MEETINGS_FILE = "reunioes.json"
+PRESENCE_FILE = "presencas.csv"
 LEGACY_CONFIG_FILE = "reuniao_config.json"
 
 # --- Funções de Data/Hora ---
@@ -46,6 +47,63 @@ def carregar_dados_participantes():
         st.error("Arquivo 'participantes.csv' não encontrado no repositório.")
         return pd.DataFrame()
 
+# --- Persistência de Presença ---
+
+def inicializar_arquivo_presenca():
+    if not os.path.exists(PRESENCE_FILE):
+        df = pd.DataFrame(columns=["meeting_id", "id_participante", "nome", "cargo", "localidade", "horario", "data_registro"])
+        df.to_csv(PRESENCE_FILE, index=False)
+
+def carregar_presencas_reuniao(meeting_id):
+    inicializar_arquivo_presenca()
+    try:
+        df = pd.read_csv(PRESENCE_FILE, dtype=str)
+        if df.empty:
+            return pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
+        
+        # Filtra pela reunião atual
+        df_reuniao = df[df["meeting_id"] == str(meeting_id)]
+        
+        # Renomeia para o formato de exibição
+        df_exibicao = df_reuniao.rename(columns={
+            "id_participante": "ID",
+            "nome": "Nome",
+            "cargo": "Cargo",
+            "localidade": "Localidade",
+            "horario": "Horario"
+        })
+        return df_exibicao[["ID", "Nome", "Cargo", "Localidade", "Horario"]]
+    except Exception as e:
+        st.error(f"Erro ao carregar presenças: {e}")
+        return pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
+
+def salvar_registro_presenca_csv(meeting_id, dados_participante):
+    inicializar_arquivo_presenca()
+    novo_registro = {
+        "meeting_id": str(meeting_id),
+        "id_participante": str(dados_participante["ID"]),
+        "nome": dados_participante["Nome"],
+        "cargo": dados_participante["Cargo"],
+        "localidade": dados_participante["Localidade"],
+        "horario": dados_participante["Horario"],
+        "data_registro": obter_hora_atual().isoformat()
+    }
+    df_novo = pd.DataFrame([novo_registro])
+    # Append mode 'a', header só se o arquivo não existir (mas a gente já garante que existe no init)
+    df_novo.to_csv(PRESENCE_FILE, mode='a', header=False, index=False)
+
+def limpar_presencas_reuniao_csv(meeting_id):
+    inicializar_arquivo_presenca()
+    try:
+        df = pd.read_csv(PRESENCE_FILE, dtype=str)
+        # Mantém apenas as linhas que NÃO são desta reunião
+        df_novo = df[df["meeting_id"] != str(meeting_id)]
+        df_novo.to_csv(PRESENCE_FILE, index=False)
+        return True
+    except Exception as e:
+        st.error(f"Erro ao limpar presenças: {e}")
+        return False
+
 # --- Reuniões (agenda) ---
 
 def carregar_reunioes():
@@ -67,7 +125,6 @@ def _gerar_id_reuniao():
     return obter_hora_atual().strftime("%Y%m%d%H%M%S%f")
 
 def migrar_legado_se_precisar(reunioes):
-    # Migra a antiga config única (reuniao_config.json) para a agenda (reunioes.json)
     if reunioes:
         return reunioes
     if not os.path.exists(LEGACY_CONFIG_FILE):
@@ -93,6 +150,7 @@ def migrar_legado_se_precisar(reunioes):
 def excluir_reuniao(reunioes, reuniao_id):
     reunioes2 = [r for r in reunioes if r.get("id") != reuniao_id]
     salvar_reunioes(reunioes2)
+    # Opcional: limpar presenças dessa reunião também? Por segurança, mantemos no CSV.
     return reunioes2
 
 def atualizar_ou_criar_reuniao(reunioes, reuniao):
@@ -110,7 +168,6 @@ def atualizar_ou_criar_reuniao(reunioes, reuniao):
         else:
             reunioes.append(reuniao)
 
-    # Ordena por data/hora
     def _key(x):
         try:
             return (x.get("data", "9999-12-31"), x.get("hora", "23:59"), x.get("nome", ""))
@@ -291,7 +348,7 @@ def gerar_excel(df_presenca, resumo_cargo, resumo_local, titulo_reuniao):
 
 # --- Check-in ---
 
-def registrar_presenca(codigo_lido, df_participantes, ids_permitidos):
+def registrar_presenca(codigo_lido, df_participantes, ids_permitidos, meeting_id):
     participante = df_participantes[df_participantes["ID"] == codigo_lido]
 
     if participante.empty:
@@ -305,18 +362,25 @@ def registrar_presenca(codigo_lido, df_participantes, ids_permitidos):
         st.error(f"⛔ {nome} NÃO consta na convocação desta reunião!")
         return False
 
+    # Verifica duplicidade na sessão (que está sincronizada com o arquivo)
     if id_p in st.session_state.lista_presenca["ID"].values:
         st.warning(f"⚠️ {nome} já está na lista.")
         return False
 
+    # Dados do registro
+    hora_registro = obter_hora_atual().strftime("%H:%M:%S")
     novo_registro = {
         "ID": id_p,
         "Nome": nome,
         "Cargo": participante.iloc[0]["Cargo"],
         "Localidade": participante.iloc[0]["Localidade"],
-        "Horario": obter_hora_atual().strftime("%H:%M:%S"),
+        "Horario": hora_registro,
     }
 
+    # 1. Salva no CSV (Persistência)
+    salvar_registro_presenca_csv(meeting_id, novo_registro)
+
+    # 2. Atualiza a tela
     st.session_state.lista_presenca = pd.concat(
         [st.session_state.lista_presenca, pd.DataFrame([novo_registro])],
         ignore_index=True,
@@ -335,6 +399,7 @@ reunioes = migrar_legado_se_precisar(carregar_reunioes())
 if "active_meeting_id" not in st.session_state:
     st.session_state.active_meeting_id = None
 
+# Inicializa sessão de lista, mas vamos carregar do arquivo logo abaixo se houver reunião ativa
 if "lista_presenca" not in st.session_state:
     st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
 
@@ -359,7 +424,8 @@ if reunioes_hoje:
     for r in reunioes_hoje[:6]:
         if st.sidebar.button(f"▶️ Iniciar: {r.get('hora','')} - {r.get('nome','')}", key=f"start_today_{r['id']}"):
             st.session_state.active_meeting_id = r["id"]
-            st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
+            # Carrega presenças salvas
+            st.session_state.lista_presenca = carregar_presencas_reuniao(r["id"])
             st.rerun()
 
 st.sidebar.divider()
@@ -369,7 +435,6 @@ if reunioes_visiveis:
     labels = [label_reuniao(r) for r in reunioes_visiveis]
     ids = [r["id"] for r in reunioes_visiveis]
 
-    # Define seleção padrão (reunião ativa ou a primeira)
     if st.session_state.active_meeting_id in ids:
         default_index = ids.index(st.session_state.active_meeting_id)
     else:
@@ -381,11 +446,16 @@ else:
     st.sidebar.info("Nenhuma reunião agendada ainda.")
     reuniao_selecionada_id = None
 
-# Botão iniciar (para qualquer dia)
+# Botão iniciar
 if reuniao_selecionada_id:
-    if st.sidebar.button("▶️ Iniciar check-in", type="primary"):
+    # Se já estiver ativa, avisa
+    label_btn = "▶️ Iniciar check-in"
+    if st.session_state.active_meeting_id == reuniao_selecionada_id:
+        label_btn = "🔄 Recarregar Check-in" # Muda label para indicar reload
+
+    if st.sidebar.button(label_btn, type="primary"):
         st.session_state.active_meeting_id = reuniao_selecionada_id
-        st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
+        st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_selecionada_id)
         st.rerun()
 
 st.sidebar.divider()
@@ -467,6 +537,16 @@ if st.session_state.active_meeting_id:
         if r.get("id") == st.session_state.active_meeting_id:
             reuniao_ativa = r
             break
+    
+    # Se a reunião ativa não for encontrada (ex: excluída), reseta
+    if not reuniao_ativa:
+        st.session_state.active_meeting_id = None
+        st.rerun()
+
+    # Tenta carregar presenças automaticamente se a lista estiver vazia mas houver dados no arquivo
+    # (Ex: usuário deu F5 na página)
+    if st.session_state.lista_presenca.empty:
+         st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_ativa["id"])
 
 if reuniao_ativa:
     titulo = label_reuniao(reuniao_ativa)
@@ -476,7 +556,6 @@ else:
     st.title("📲 Check-in")
     st.warning("Selecione uma reunião na agenda e clique em 'Iniciar check-in'.")
 
-# Se não tiver reunião ativa, não inicia check-in
 if reuniao_ativa is None:
     st.stop()
 
@@ -494,7 +573,7 @@ with tab_auto:
     if qrcode_scanner:
         qr_code_auto = qrcode_scanner(key="scanner_auto")
         if qr_code_auto:
-            registrar_presenca(qr_code_auto, df_participantes, ids_permitidos)
+            registrar_presenca(qr_code_auto, df_participantes, ids_permitidos, reuniao_ativa["id"])
     else:
         st.warning("Scanner automático indisponível neste ambiente. Use a aba de foto.")
 
@@ -504,7 +583,7 @@ with tab_manual:
     if img:
         codigo = processar_qr_code_imagem(img)
         if codigo:
-            registrar_presenca(codigo, df_participantes, ids_permitidos)
+            registrar_presenca(codigo, df_participantes, ids_permitidos, reuniao_ativa["id"])
 
 # Exibição
 if not st.session_state.lista_presenca.empty:
@@ -548,8 +627,12 @@ if not st.session_state.lista_presenca.empty:
             )
 
     with col3:
-        if st.button("🗑️ Limpar lista"):
-            st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
-            st.rerun()
+        if st.button("🗑️ Limpar Check-in"):
+            # Pergunta se quer limpar só a tela ou o banco?
+            # Por segurança, vamos limpar o banco desta reunião
+            if limpar_presencas_reuniao_csv(reuniao_ativa["id"]):
+                st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
+                st.success("Lista limpa com sucesso!")
+                st.rerun()
 else:
     st.info("Ainda não há registros de presença.")
