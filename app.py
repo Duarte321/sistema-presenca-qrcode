@@ -17,7 +17,8 @@ except ImportError:
     qrcode_scanner = None
 
 # --- Configuração da Página ---
-st.set_page_config(page_title="Check-in QR Code", layout="centered")
+# Alterado para "wide" para aumentar o tamanho da câmera
+st.set_page_config(page_title="Check-in QR Code", layout="wide")
 
 MEETINGS_FILE = "reunioes.json"
 PRESENCE_FILE = "presencas.csv"
@@ -89,14 +90,12 @@ def salvar_registro_presenca_csv(meeting_id, dados_participante):
         "data_registro": obter_hora_atual().isoformat()
     }
     df_novo = pd.DataFrame([novo_registro])
-    # Append mode 'a', header só se o arquivo não existir (mas a gente já garante que existe no init)
     df_novo.to_csv(PRESENCE_FILE, mode='a', header=False, index=False)
 
 def limpar_presencas_reuniao_csv(meeting_id):
     inicializar_arquivo_presenca()
     try:
         df = pd.read_csv(PRESENCE_FILE, dtype=str)
-        # Mantém apenas as linhas que NÃO são desta reunião
         df_novo = df[df["meeting_id"] != str(meeting_id)]
         df_novo.to_csv(PRESENCE_FILE, index=False)
         return True
@@ -150,7 +149,6 @@ def migrar_legado_se_precisar(reunioes):
 def excluir_reuniao(reunioes, reuniao_id):
     reunioes2 = [r for r in reunioes if r.get("id") != reuniao_id]
     salvar_reunioes(reunioes2)
-    # Opcional: limpar presenças dessa reunião também? Por segurança, mantemos no CSV.
     return reunioes2
 
 def atualizar_ou_criar_reuniao(reunioes, reuniao):
@@ -362,12 +360,10 @@ def registrar_presenca(codigo_lido, df_participantes, ids_permitidos, meeting_id
         st.error(f"⛔ {nome} NÃO consta na convocação desta reunião!")
         return False
 
-    # Verifica duplicidade na sessão (que está sincronizada com o arquivo)
     if id_p in st.session_state.lista_presenca["ID"].values:
         st.warning(f"⚠️ {nome} já está na lista.")
         return False
 
-    # Dados do registro
     hora_registro = obter_hora_atual().strftime("%H:%M:%S")
     novo_registro = {
         "ID": id_p,
@@ -377,10 +373,8 @@ def registrar_presenca(codigo_lido, df_participantes, ids_permitidos, meeting_id
         "Horario": hora_registro,
     }
 
-    # 1. Salva no CSV (Persistência)
     salvar_registro_presenca_csv(meeting_id, novo_registro)
 
-    # 2. Atualiza a tela
     st.session_state.lista_presenca = pd.concat(
         [st.session_state.lista_presenca, pd.DataFrame([novo_registro])],
         ignore_index=True,
@@ -399,7 +393,6 @@ reunioes = migrar_legado_se_precisar(carregar_reunioes())
 if "active_meeting_id" not in st.session_state:
     st.session_state.active_meeting_id = None
 
-# Inicializa sessão de lista, mas vamos carregar do arquivo logo abaixo se houver reunião ativa
 if "lista_presenca" not in st.session_state:
     st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
 
@@ -410,27 +403,23 @@ st.sidebar.header("📅 Agenda de Reuniões")
 
 mostrar_passadas = st.sidebar.checkbox("Mostrar passadas", value=False)
 
-# Filtra lista
 reunioes_visiveis = []
 for r in reunioes:
     d = r.get("data", "")
     if mostrar_passadas or d >= hoje:
         reunioes_visiveis.append(r)
 
-# Lista de hoje (atalho)
 reunioes_hoje = [r for r in reunioes if r.get("data") == hoje]
 if reunioes_hoje:
     st.sidebar.markdown("**Hoje:**")
     for r in reunioes_hoje[:6]:
         if st.sidebar.button(f"▶️ Iniciar: {r.get('hora','')} - {r.get('nome','')}", key=f"start_today_{r['id']}"):
             st.session_state.active_meeting_id = r["id"]
-            # Carrega presenças salvas
             st.session_state.lista_presenca = carregar_presencas_reuniao(r["id"])
             st.rerun()
 
 st.sidebar.divider()
 
-# Selectbox de reuniões
 if reunioes_visiveis:
     labels = [label_reuniao(r) for r in reunioes_visiveis]
     ids = [r["id"] for r in reunioes_visiveis]
@@ -446,12 +435,10 @@ else:
     st.sidebar.info("Nenhuma reunião agendada ainda.")
     reuniao_selecionada_id = None
 
-# Botão iniciar
 if reuniao_selecionada_id:
-    # Se já estiver ativa, avisa
     label_btn = "▶️ Iniciar check-in"
     if st.session_state.active_meeting_id == reuniao_selecionada_id:
-        label_btn = "🔄 Recarregar Check-in" # Muda label para indicar reload
+        label_btn = "🔄 Recarregar Check-in"
 
     if st.sidebar.button(label_btn, type="primary"):
         st.session_state.active_meeting_id = reuniao_selecionada_id
@@ -472,7 +459,6 @@ if modo == "Editar selecionada" and reuniao_selecionada_id:
             reuniao_atual_edicao = r
             break
 
-# Defaults
 nome_def = reuniao_atual_edicao.get("nome", "") if reuniao_atual_edicao else ""
 data_def = _parse_date(reuniao_atual_edicao.get("data", hoje)) if reuniao_atual_edicao else date.today()
 hora_def = _parse_time(reuniao_atual_edicao.get("hora", "19:30")) if reuniao_atual_edicao else time(19, 30)
@@ -518,7 +504,6 @@ if salvar:
         st.sidebar.success("Reunião salva!")
         st.rerun()
 
-# Excluir reunião selecionada
 if modo == "Editar selecionada" and reuniao_atual_edicao:
     st.sidebar.divider()
     confirmar = st.sidebar.checkbox("Confirmar exclusão")
@@ -526,11 +511,10 @@ if modo == "Editar selecionada" and reuniao_atual_edicao:
         reunioes = excluir_reuniao(reunioes, reuniao_atual_edicao["id"])
         if st.session_state.active_meeting_id == reuniao_atual_edicao["id"]:
             st.session_state.active_meeting_id = None
-            st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
+            st.rerun()
         st.sidebar.success("Reunião excluída!")
         st.rerun()
 
-# --- Reunião ativa ---
 reuniao_ativa = None
 if st.session_state.active_meeting_id:
     for r in reunioes:
@@ -538,13 +522,10 @@ if st.session_state.active_meeting_id:
             reuniao_ativa = r
             break
     
-    # Se a reunião ativa não for encontrada (ex: excluída), reseta
     if not reuniao_ativa:
         st.session_state.active_meeting_id = None
         st.rerun()
 
-    # Tenta carregar presenças automaticamente se a lista estiver vazia mas houver dados no arquivo
-    # (Ex: usuário deu F5 na página)
     if st.session_state.lista_presenca.empty:
          st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_ativa["id"])
 
@@ -559,33 +540,38 @@ else:
 if reuniao_ativa is None:
     st.stop()
 
-# Convocados
 convocados_df = filtrar_participantes_convocados(df_participantes, reuniao_ativa)
 ids_permitidos = set(convocados_df["ID"].values.tolist()) if not convocados_df.empty else set()
 
 st.divider()
 st.markdown("### 📷 Leitura de QR Code")
 
+# Aqui garantimos que usamos a largura total
 tab_auto, tab_manual = st.tabs(["⚡ Leitura Automática", "📷 Câmera Manual / Foto"])
 
 with tab_auto:
     st.markdown("Aponte a câmera para ler automaticamente.")
-    if qrcode_scanner:
-        qr_code_auto = qrcode_scanner(key="scanner_auto")
-        if qr_code_auto:
-            registrar_presenca(qr_code_auto, df_participantes, ids_permitidos, reuniao_ativa["id"])
-    else:
-        st.warning("Scanner automático indisponível neste ambiente. Use a aba de foto.")
+    # Coluna centralizada se quiser manter aspecto ou full
+    col_cam, _ = st.columns([2, 1])
+    with col_cam:
+        if qrcode_scanner:
+            qr_code_auto = qrcode_scanner(key="scanner_auto")
+            if qr_code_auto:
+                registrar_presenca(qr_code_auto, df_participantes, ids_permitidos, reuniao_ativa["id"])
+        else:
+            st.warning("Scanner automático indisponível neste ambiente. Use a aba de foto.")
 
 with tab_manual:
     st.markdown("Tire uma foto do QR Code (modo mais compatível em celular).")
-    img = st.camera_input("Tirar foto")
-    if img:
-        codigo = processar_qr_code_imagem(img)
-        if codigo:
-            registrar_presenca(codigo, df_participantes, ids_permitidos, reuniao_ativa["id"])
+    # Usa coluna maior para a câmera
+    col_foto, _ = st.columns([3, 1])
+    with col_foto:
+        img = st.camera_input("Tirar foto")
+        if img:
+            codigo = processar_qr_code_imagem(img)
+            if codigo:
+                registrar_presenca(codigo, df_participantes, ids_permitidos, reuniao_ativa["id"])
 
-# Exibição
 if not st.session_state.lista_presenca.empty:
     st.divider()
     st.markdown("### 📊 Resumo")
@@ -628,8 +614,6 @@ if not st.session_state.lista_presenca.empty:
 
     with col3:
         if st.button("🗑️ Limpar Check-in"):
-            # Pergunta se quer limpar só a tela ou o banco?
-            # Por segurança, vamos limpar o banco desta reunião
             if limpar_presencas_reuniao_csv(reuniao_ativa["id"]):
                 st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
                 st.success("Lista limpa com sucesso!")
