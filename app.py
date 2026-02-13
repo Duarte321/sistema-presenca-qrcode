@@ -539,6 +539,10 @@ if not reuniao_ativa:
 # --- Check-in ---
 st.title(f"📲 {reuniao_ativa.get('nome')}")
 
+# Definindo variáveis necessárias antes de serem usadas nos Tabs
+convocados_df = filtrar_participantes_convocados(df_participantes, reuniao_ativa)
+ids_permitidos = set(convocados_df["ID"].values.tolist()) if not convocados_df.empty else set()
+
 # Abas restauradas conforme pedido
 tab_auto, tab_manual = st.tabs(["⚡ Leitura Automática", "📷 Câmera Manual / Foto"])
 
