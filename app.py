@@ -12,13 +12,72 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import json
 import os
 import time as time_lib
+try:
+    from streamlit_back_camera_input import back_camera_input
+except ImportError:
+    back_camera_input = None
 
 # --- Configuração da Página ---
-st.set_page_config(page_title="Check-in QR Code", layout="wide")
+st.set_page_config(page_title="Scanner QR", layout="wide", initial_sidebar_state="collapsed")
 
 MEETINGS_FILE = "reunioes.json"
 PRESENCE_FILE = "presencas.csv"
 LEGACY_CONFIG_FILE = "reuniao_config.json"
+
+# --- CSS Customizado para Interface de Scanner ---
+st.markdown("""
+<style>
+    /* Esconde elementos padrão do Streamlit para dar ar de 'App' */
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* Centraliza e estiliza a câmera */
+    .stCamera {
+        position: relative;
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    
+    /* Overlay de scanner simulado via CSS (bordas laranjas) */
+    .scan-overlay {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 70%;
+        height: 40%;
+        border: 4px solid #FFA500;
+        box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+        z-index: 10;
+        pointer-events: none; /* Deixa clicar na câmera */
+        border-radius: 12px;
+    }
+    
+    /* Linha de scan animada */
+    @keyframes scan {
+        0% {top: 10%;}
+        50% {top: 90%;}
+        100% {top: 10%;}
+    }
+    .scan-line {
+        position: absolute;
+        width: 100%;
+        height: 2px;
+        background: red;
+        top: 50%;
+        animation: scan 2s infinite linear;
+    }
+
+    /* Botão flutuante para acessar menu */
+    .floating-menu {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 999;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # --- Funções de Data/Hora ---
 
@@ -374,7 +433,6 @@ def registrar_presenca(codigo_lido, df_participantes, ids_permitidos, meeting_id
         ignore_index=True,
     )
     
-    # Exibe mensagem de sucesso temporária
     st.toast(f"✅ {nome} registrado com sucesso!", icon="✅")
     return True
 
@@ -397,122 +455,124 @@ if "camera_key" not in st.session_state:
 hoje = date.today().strftime("%Y-%m-%d")
 
 # --- Sidebar: Agenda ---
-st.sidebar.header("📅 Agenda de Reuniões")
+with st.sidebar:
+    st.header("📅 Agenda de Reuniões")
 
-mostrar_passadas = st.sidebar.checkbox("Mostrar passadas", value=False)
+    mostrar_passadas = st.checkbox("Mostrar passadas", value=False)
 
-reunioes_visiveis = []
-for r in reunioes:
-    d = r.get("data", "")
-    if mostrar_passadas or d >= hoje:
-        reunioes_visiveis.append(r)
-
-reunioes_hoje = [r for r in reunioes if r.get("data") == hoje]
-if reunioes_hoje:
-    st.sidebar.markdown("**Hoje:**")
-    for r in reunioes_hoje[:6]:
-        if st.sidebar.button(f"▶️ Iniciar: {r.get('hora','')} - {r.get('nome','')}", key=f"start_today_{r['id']}"):
-            st.session_state.active_meeting_id = r["id"]
-            st.session_state.lista_presenca = carregar_presencas_reuniao(r["id"])
-            st.rerun()
-
-st.sidebar.divider()
-
-if reunioes_visiveis:
-    labels = [label_reuniao(r) for r in reunioes_visiveis]
-    ids = [r["id"] for r in reunioes_visiveis]
-
-    if st.session_state.active_meeting_id in ids:
-        default_index = ids.index(st.session_state.active_meeting_id)
-    else:
-        default_index = 0
-
-    sel_index = st.sidebar.selectbox("Selecionar reunião", range(len(ids)), format_func=lambda i: labels[i], index=default_index)
-    reuniao_selecionada_id = ids[sel_index]
-else:
-    st.sidebar.info("Nenhuma reunião agendada ainda.")
-    reuniao_selecionada_id = None
-
-if reuniao_selecionada_id:
-    label_btn = "▶️ Iniciar check-in"
-    if st.session_state.active_meeting_id == reuniao_selecionada_id:
-        label_btn = "🔄 Recarregar Check-in"
-
-    if st.sidebar.button(label_btn, type="primary"):
-        st.session_state.active_meeting_id = reuniao_selecionada_id
-        st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_selecionada_id)
-        st.rerun()
-
-st.sidebar.divider()
-
-# --- Sidebar: Criar/Editar ---
-st.sidebar.header("🛠️ Criar / Editar")
-
-modo = st.sidebar.radio("Modo", ["Criar nova", "Editar selecionada"], index=1 if reuniao_selecionada_id else 0)
-
-reuniao_atual_edicao = None
-if modo == "Editar selecionada" and reuniao_selecionada_id:
+    reunioes_visiveis = []
     for r in reunioes:
-        if r.get("id") == reuniao_selecionada_id:
-            reuniao_atual_edicao = r
-            break
+        d = r.get("data", "")
+        if mostrar_passadas or d >= hoje:
+            reunioes_visiveis.append(r)
 
-nome_def = reuniao_atual_edicao.get("nome", "") if reuniao_atual_edicao else ""
-data_def = _parse_date(reuniao_atual_edicao.get("data", hoje)) if reuniao_atual_edicao else date.today()
-hora_def = _parse_time(reuniao_atual_edicao.get("hora", "19:30")) if reuniao_atual_edicao else time(19, 30)
-filtro_def = reuniao_atual_edicao.get("filtro_tipo", "Todos") if reuniao_atual_edicao else "Todos"
-valores_def = reuniao_atual_edicao.get("filtro_valores", []) if reuniao_atual_edicao else []
+    reunioes_hoje = [r for r in reunioes if r.get("data") == hoje]
+    if reunioes_hoje:
+        st.markdown("**Hoje:**")
+        for r in reunioes_hoje[:6]:
+            if st.button(f"▶️ Iniciar: {r.get('hora','')} - {r.get('nome','')}", key=f"start_today_{r['id']}"):
+                st.session_state.active_meeting_id = r["id"]
+                st.session_state.lista_presenca = carregar_presencas_reuniao(r["id"])
+                st.rerun()
 
-with st.sidebar.form("form_reuniao"):
-    nome_input = st.text_input("Nome", value=nome_def, placeholder="Ex: Ensaio Regional")
-    data_input = st.date_input("Data", value=data_def)
-    hora_input = st.time_input("Horário", value=hora_def)
+    st.divider()
 
-    st.markdown("**Convocação**")
-    opcoes_radio = ["Todos", "Por Cargo", "Por Localidade", "Manual"]
-    idx = opcoes_radio.index(filtro_def) if filtro_def in opcoes_radio else 0
-    filtro_tipo = st.radio("Tipo", opcoes_radio, index=idx)
+    if reunioes_visiveis:
+        labels = [label_reuniao(r) for r in reunioes_visiveis]
+        ids = [r["id"] for r in reunioes_visiveis]
 
-    valores = []
-    if filtro_tipo == "Por Cargo" and not df_participantes.empty:
-        opcoes = sorted(df_participantes["Cargo"].unique().tolist())
-        valores = st.multiselect("Cargos", opcoes, default=[v for v in valores_def if v in opcoes])
-    elif filtro_tipo == "Por Localidade" and not df_participantes.empty:
-        opcoes = sorted(df_participantes["Localidade"].unique().tolist())
-        valores = st.multiselect("Localidades", opcoes, default=[v for v in valores_def if v in opcoes])
-    elif filtro_tipo == "Manual" and not df_participantes.empty:
-        opcoes = sorted(df_participantes["Nome"].unique().tolist())
-        valores = st.multiselect("Nomes", opcoes, default=[v for v in valores_def if v in opcoes])
+        if st.session_state.active_meeting_id in ids:
+            default_index = ids.index(st.session_state.active_meeting_id)
+        else:
+            default_index = 0
 
-    salvar = st.form_submit_button("💾 Salvar")
-
-if salvar:
-    if not nome_input.strip():
-        st.sidebar.error("Informe o nome da reunião.")
+        sel_index = st.selectbox("Selecionar reunião", range(len(ids)), format_func=lambda i: labels[i], index=default_index)
+        reuniao_selecionada_id = ids[sel_index]
     else:
-        payload = {
-            "id": reuniao_atual_edicao.get("id") if (modo == "Editar selecionada" and reuniao_atual_edicao) else None,
-            "nome": nome_input.strip(),
-            "data": data_input.strftime("%Y-%m-%d"),
-            "hora": hora_input.strftime("%H:%M"),
-            "filtro_tipo": filtro_tipo,
-            "filtro_valores": valores if filtro_tipo != "Todos" else [],
-        }
-        reunioes = atualizar_ou_criar_reuniao(reunioes, payload)
-        st.sidebar.success("Reunião salva!")
-        st.rerun()
+        st.info("Nenhuma reunião agendada ainda.")
+        reuniao_selecionada_id = None
 
-if modo == "Editar selecionada" and reuniao_atual_edicao:
-    st.sidebar.divider()
-    confirmar = st.sidebar.checkbox("Confirmar exclusão")
-    if st.sidebar.button("🗑️ Excluir reunião", disabled=not confirmar):
-        reunioes = excluir_reuniao(reunioes, reuniao_atual_edicao["id"])
-        if st.session_state.active_meeting_id == reuniao_atual_edicao["id"]:
-            st.session_state.active_meeting_id = None
+    if reuniao_selecionada_id:
+        label_btn = "▶️ Iniciar check-in"
+        if st.session_state.active_meeting_id == reuniao_selecionada_id:
+            label_btn = "🔄 Recarregar Check-in"
+
+        if st.button(label_btn, type="primary"):
+            st.session_state.active_meeting_id = reuniao_selecionada_id
+            st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_selecionada_id)
             st.rerun()
-        st.sidebar.success("Reunião excluída!")
-        st.rerun()
 
+    st.divider()
+
+    # --- Sidebar: Criar/Editar ---
+    st.header("🛠️ Criar / Editar")
+
+    modo = st.radio("Modo", ["Criar nova", "Editar selecionada"], index=1 if reuniao_selecionada_id else 0)
+
+    reuniao_atual_edicao = None
+    if modo == "Editar selecionada" and reuniao_selecionada_id:
+        for r in reunioes:
+            if r.get("id") == reuniao_selecionada_id:
+                reuniao_atual_edicao = r
+                break
+
+    nome_def = reuniao_atual_edicao.get("nome", "") if reuniao_atual_edicao else ""
+    data_def = _parse_date(reuniao_atual_edicao.get("data", hoje)) if reuniao_atual_edicao else date.today()
+    hora_def = _parse_time(reuniao_atual_edicao.get("hora", "19:30")) if reuniao_atual_edicao else time(19, 30)
+    filtro_def = reuniao_atual_edicao.get("filtro_tipo", "Todos") if reuniao_atual_edicao else "Todos"
+    valores_def = reuniao_atual_edicao.get("filtro_valores", []) if reuniao_atual_edicao else []
+
+    with st.form("form_reuniao"):
+        nome_input = st.text_input("Nome", value=nome_def, placeholder="Ex: Ensaio Regional")
+        data_input = st.date_input("Data", value=data_def)
+        hora_input = st.time_input("Horário", value=hora_def)
+
+        st.markdown("**Convocação**")
+        opcoes_radio = ["Todos", "Por Cargo", "Por Localidade", "Manual"]
+        idx = opcoes_radio.index(filtro_def) if filtro_def in opcoes_radio else 0
+        filtro_tipo = st.radio("Tipo", opcoes_radio, index=idx)
+
+        valores = []
+        if filtro_tipo == "Por Cargo" and not df_participantes.empty:
+            opcoes = sorted(df_participantes["Cargo"].unique().tolist())
+            valores = st.multiselect("Cargos", opcoes, default=[v for v in valores_def if v in opcoes])
+        elif filtro_tipo == "Por Localidade" and not df_participantes.empty:
+            opcoes = sorted(df_participantes["Localidade"].unique().tolist())
+            valores = st.multiselect("Localidades", opcoes, default=[v for v in valores_def if v in opcoes])
+        elif filtro_tipo == "Manual" and not df_participantes.empty:
+            opcoes = sorted(df_participantes["Nome"].unique().tolist())
+            valores = st.multiselect("Nomes", opcoes, default=[v for v in valores_def if v in opcoes])
+
+        salvar = st.form_submit_button("💾 Salvar")
+
+    if salvar:
+        if not nome_input.strip():
+            st.error("Informe o nome da reunião.")
+        else:
+            payload = {
+                "id": reuniao_atual_edicao.get("id") if (modo == "Editar selecionada" and reuniao_atual_edicao) else None,
+                "nome": nome_input.strip(),
+                "data": data_input.strftime("%Y-%m-%d"),
+                "hora": hora_input.strftime("%H:%M"),
+                "filtro_tipo": filtro_tipo,
+                "filtro_valores": valores if filtro_tipo != "Todos" else [],
+            }
+            reunioes = atualizar_ou_criar_reuniao(reunioes, payload)
+            st.success("Reunião salva!")
+            st.rerun()
+
+    if modo == "Editar selecionada" and reuniao_atual_edicao:
+        st.divider()
+        confirmar = st.checkbox("Confirmar exclusão")
+        if st.button("🗑️ Excluir reunião", disabled=not confirmar):
+            reunioes = excluir_reuniao(reunioes, reuniao_atual_edicao["id"])
+            if st.session_state.active_meeting_id == reuniao_atual_edicao["id"]:
+                st.session_state.active_meeting_id = None
+                st.rerun()
+            st.success("Reunião excluída!")
+            st.rerun()
+
+# --- Lógica de Reunião Ativa ---
 reuniao_ativa = None
 if st.session_state.active_meeting_id:
     for r in reunioes:
@@ -527,90 +587,75 @@ if st.session_state.active_meeting_id:
     if st.session_state.lista_presenca.empty:
          st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_ativa["id"])
 
-if reuniao_ativa:
-    titulo = label_reuniao(reuniao_ativa)
-    st.title(f"📲 {reuniao_ativa.get('nome','Reunião')}")
-    st.info(f"Reunião ativa: {titulo}")
-else:
+if not reuniao_ativa:
     st.title("📲 Check-in")
-    st.warning("Selecione uma reunião na agenda e clique em 'Iniciar check-in'.")
-
-if reuniao_ativa is None:
+    st.warning("Selecione uma reunião na agenda (menu lateral) e clique em 'Iniciar check-in'.")
     st.stop()
+
+# --- Tela de Check-in (Scanner Estilizado) ---
+# Título minimalista
+# st.markdown(f"#### 📷 {reuniao_ativa.get('nome')}")
 
 convocados_df = filtrar_participantes_convocados(df_participantes, reuniao_ativa)
 ids_permitidos = set(convocados_df["ID"].values.tolist()) if not convocados_df.empty else set()
 
-st.divider()
-st.markdown("### 📷 Leitura de QR Code")
+# Container para overlay
+st.markdown('<div class="scan-overlay"><div class="scan-line"></div></div>', unsafe_allow_html=True)
 
-# Layout de Câmera "Modo Contínuo"
-st.info("Aponte a câmera. Ao tirar a foto, o registro é automático e a câmera reinicia.")
-col_cam_main, _ = st.columns([3, 1])
-
-with col_cam_main:
-    # Usando key dinâmica para resetar o componente
-    key_camera = f"camera_{st.session_state.camera_key}"
-    img = st.camera_input("📷 Tirar Foto", key=key_camera)
+# Câmera Input
+key_camera = f"camera_{st.session_state.camera_key}"
+if back_camera_input:
+    img = back_camera_input(key=key_camera) # Tenta usar componente de câmera traseira
+else:
+    img = st.camera_input("Toque na imagem para capturar", key=key_camera, label_visibility="collapsed") # Fallback
 
 if img:
     codigo = processar_qr_code_imagem(img)
     if codigo:
         sucesso = registrar_presenca(codigo, df_participantes, ids_permitidos, reuniao_ativa["id"])
         if sucesso:
-            # Incrementa key para "limpar" a câmera forçadamente e permitir próxima leitura
             st.session_state.camera_key += 1
             st.rerun()
     else:
         st.error("QR Code não detectado. Tente novamente.")
-        # Se falhar, talvez não queira resetar instantaneamente para a pessoa ver o erro?
-        # Mas para ser rápido, vamos deixar o erro na tela e permitir nova foto.
 
+# --- Área de Resultados ---
 if not st.session_state.lista_presenca.empty:
-    st.divider()
-    st.markdown("### 📊 Resumo")
-
+    st.markdown("---")
+    
     col1, col2 = st.columns(2)
-    resumo_cargo = st.session_state.lista_presenca["Cargo"].value_counts()
-    resumo_local = st.session_state.lista_presenca["Localidade"].value_counts()
-
     with col1:
-        st.dataframe(resumo_cargo, use_container_width=True)
+        st.metric("Total Presente", len(st.session_state.lista_presenca))
     with col2:
-        st.dataframe(resumo_local, use_container_width=True)
+        # Mostra o último registrado
+        ultimo = st.session_state.lista_presenca.iloc[-1]
+        st.metric("Último Registro", f"{ultimo['Nome'].split()[0]} ({ultimo['Horario'][:5]})")
 
-    st.markdown("### 📝 Lista de Presentes")
-    st.dataframe(
-        st.session_state.lista_presenca[["Nome", "Cargo", "Localidade", "Horario"]],
-        use_container_width=True,
-        hide_index=True,
-    )
+    with st.expander("Ver lista completa e exportar"):
+        st.dataframe(
+            st.session_state.lista_presenca[["Nome", "Cargo", "Horario"]],
+            use_container_width=True,
+            hide_index=True,
+        )
 
-    st.divider()
-    col1, col2, col3 = st.columns(3)
-
-    nome_arquivo = f"{reuniao_ativa.get('data','')}_{reuniao_ativa.get('hora','')}_{reuniao_ativa.get('nome','reuniao')}".replace(" ", "_")
-
-    with col1:
-        if st.button("📄 PDF"):
-            pdf_data = gerar_pdf(st.session_state.lista_presenca, resumo_cargo, resumo_local, reuniao_ativa.get("nome", "Reunião"))
-            st.download_button("Baixar PDF", data=pdf_data, file_name=f"{nome_arquivo}.pdf", mime="application/pdf")
-
-    with col2:
-        if st.button("📋 Excel"):
-            excel_data = gerar_excel(st.session_state.lista_presenca, resumo_cargo, resumo_local, reuniao_ativa.get("nome", "Reunião"))
-            st.download_button(
-                "Baixar Excel",
-                data=excel_data,
-                file_name=f"{nome_arquivo}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-
-    with col3:
-        if st.button("🗑️ Limpar Check-in"):
-            if limpar_presencas_reuniao_csv(reuniao_ativa["id"]):
-                st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
-                st.success("Lista limpa com sucesso!")
-                st.rerun()
-else:
-    st.info("Ainda não há registros de presença.")
+        colA, colB, colC = st.columns(3)
+        nome_arquivo = f"{reuniao_ativa.get('data','')}_{reuniao_ativa.get('hora','')}_{reuniao_ativa.get('nome','reuniao')}".replace(" ", "_")
+        
+        with colA:
+            if st.button("📄 PDF"):
+                # Recalcula resumos para o relatório
+                resumo_cargo = st.session_state.lista_presenca["Cargo"].value_counts()
+                resumo_local = st.session_state.lista_presenca["Localidade"].value_counts()
+                pdf_data = gerar_pdf(st.session_state.lista_presenca, resumo_cargo, resumo_local, reuniao_ativa.get("nome", "Reunião"))
+                st.download_button("Baixar PDF", data=pdf_data, file_name=f"{nome_arquivo}.pdf", mime="application/pdf")
+        with colB:
+            if st.button("📋 Excel"):
+                resumo_cargo = st.session_state.lista_presenca["Cargo"].value_counts()
+                resumo_local = st.session_state.lista_presenca["Localidade"].value_counts()
+                excel_data = gerar_excel(st.session_state.lista_presenca, resumo_cargo, resumo_local, reuniao_ativa.get("nome", "Reunião"))
+                st.download_button("Baixar Excel", data=excel_data, file_name=f"{nome_arquivo}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        with colC:
+             if st.button("🗑️ Limpar"):
+                if limpar_presencas_reuniao_csv(reuniao_ativa["id"]):
+                    st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
+                    st.rerun()
