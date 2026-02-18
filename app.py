@@ -541,9 +541,6 @@ if "lista_presenca" not in st.session_state:
 if "camera_key" not in st.session_state:
     st.session_state.camera_key = 0
 
-if "uploader_key" not in st.session_state:
-    st.session_state.uploader_key = 0
-
 hoje = date.today().strftime("%Y-%m-%d")
 
 # --- Sidebar: Agenda ---
@@ -689,7 +686,7 @@ if not reuniao_ativa:
     st.warning("Selecione uma reunião na agenda (menu lateral) e clique em 'Iniciar check-in'.")
     st.stop()
 
-# --- Check-in MOBILE OTIMIZADO ---
+# --- Check-in MOBILE OTIMIZADO (SÓ CÂMERA) ---
 st.title(f"📲 {reuniao_ativa.get('nome')}")
 
 convocados_df = filtrar_participantes_convocados(df_participantes, reuniao_ativa)
@@ -703,35 +700,18 @@ with col_header[1]:
     total = len(st.session_state.lista_presenca)
     st.metric("👥 Presentes", total)
 
-st.info("💡 **Dicas para leitura rápida:** Aproxime o QR da câmera (15-20cm), evite tremor e garanta boa iluminação.")
+st.info("💡 **Dicas:** Aproxime o QR da câmera (15-20cm), evite tremor e garanta boa iluminação.")
 
 codigo_lido = None
 read_ms = None
 
-# Interface mobile-first: câmera grande e visível
+# APENAS CÂMERA (interface limpa e rápida)
 key_camera = f"camera_{st.session_state.camera_key}"
 img = st.camera_input("📸 Tirar foto do QR Code", key=key_camera, label_visibility="collapsed")
 
 if img:
     with st.spinner("🔍 Processando..."):
         codigo_lido, read_ms = ler_qr_code_mobile(img.getvalue())
-
-# Fallback: upload de foto ou digitar ID (menos usado em mobile)
-with st.expander("🔧 Opções alternativas"):
-    col_alt = st.columns(2)
-    with col_alt[0]:
-        up_key = f"uploader_{st.session_state.uploader_key}"
-        up = st.file_uploader("Enviar foto do QR", type=["jpg", "jpeg", "png"], key=up_key)
-        if up:
-            with st.spinner("🔍 Processando..."):
-                codigo_lido, read_ms = ler_qr_code_mobile(up.getvalue())
-
-    with col_alt[1]:
-        id_manual = st.text_input("Digitar ID", placeholder="Ex: CF001")
-        if st.button("Registrar", type="secondary", use_container_width=True):
-            if id_manual.strip():
-                codigo_lido = id_manual.strip()
-                read_ms = 0
 
 # Processamento do resultado
 if codigo_lido is not None:
@@ -744,7 +724,6 @@ if codigo_lido is not None:
             if read_ms is not None and read_ms > 0:
                 st.caption(f"⚡ Leitura em {read_ms} ms")
             st.session_state.camera_key += 1
-            st.session_state.uploader_key += 1
             st.balloons()  # Feedback visual de sucesso
             time_module.sleep(0.5)  # Pausa visual antes de recarregar
             st.rerun()
