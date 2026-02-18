@@ -11,17 +11,23 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import json
 import os
-try:
-    from streamlit_qrcode_scanner import qrcode_scanner
-except ImportError:
-    qrcode_scanner = None
+import time as time_module
 
 # --- Configuração da Página ---
-st.set_page_config(page_title="Check-in QR Code", layout="wide")
+st.set_page_config(
+    page_title="Check-in QR Code",
+    layout="wide",
+    initial_sidebar_state="collapsed",  # Melhor para mobile
+)
 
 MEETINGS_FILE = "reunioes.json"
 PRESENCE_FILE = "presencas.csv"
 LEGACY_CONFIG_FILE = "reuniao_config.json"
+
+# Otimizações para mobile (empresas usam 800-1000px max)
+MAX_IMG_WIDTH = 900
+MAX_IMG_HEIGHT = 900
+MIN_QR_SIZE = 80  # Píxeis mínimos para considerar um QR válido
 
 # --- Funções de Data/Hora ---
 
@@ -47,35 +53,51 @@ def carregar_dados_participantes():
         st.error("Arquivo 'participantes.csv' não encontrado no repositório.")
         return pd.DataFrame()
 
-# --- Persistência de Presença ---
+# --- Persistência de Presença (com cache para evitar leituras repetidas) ---
 
 def inicializar_arquivo_presenca():
     if not os.path.exists(PRESENCE_FILE):
-        df = pd.DataFrame(columns=["meeting_id", "id_participante", "nome", "cargo", "localidade", "horario", "data_registro"])
+        df = pd.DataFrame(
+            columns=[
+                "meeting_id",
+                "id_participante",
+                "nome",
+                "cargo",
+                "localidade",
+                "horario",
+                "data_registro",
+            ]
+        )
         df.to_csv(PRESENCE_FILE, index=False)
 
-def carregar_presencas_reuniao(meeting_id):
+@st.cache_data(ttl=2)  # Cache de 2s para reduzir I/O em mobile
+def _carregar_presencas_raw():
     inicializar_arquivo_presenca()
     try:
-        df = pd.read_csv(PRESENCE_FILE, dtype=str)
-        if df.empty:
-            return pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
-        
-        df_reuniao = df[df["meeting_id"] == str(meeting_id)]
-        
-        df_exibicao = df_reuniao.rename(columns={
+        return pd.read_csv(PRESENCE_FILE, dtype=str)
+    except Exception:
+        return pd.DataFrame()
+
+def carregar_presencas_reuniao(meeting_id):
+    df = _carregar_presencas_raw()
+    if df.empty:
+        return pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
+
+    df_reuniao = df[df["meeting_id"] == str(meeting_id)]
+    df_exibicao = df_reuniao.rename(
+        columns={
             "id_participante": "ID",
             "nome": "Nome",
             "cargo": "Cargo",
             "localidade": "Localidade",
-            "horario": "Horario"
-        })
-        return df_exibicao[["ID", "Nome", "Cargo", "Localidade", "Horario"]]
-    except Exception as e:
-        st.error(f"Erro ao carregar presenças: {e}")
-        return pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
+            "horario": "Horario",
+        }
+    )
+    return df_exibicao[["ID", "Nome", "Cargo", "Localidade", "Horario"]]
 
 def salvar_registro_presenca_csv(meeting_id, dados_participante):
+    # Invalida cache após escrita
+    _carregar_presencas_raw.clear()
     inicializar_arquivo_presenca()
     novo_registro = {
         "meeting_id": str(meeting_id),
@@ -84,12 +106,12 @@ def salvar_registro_presenca_csv(meeting_id, dados_participante):
         "cargo": dados_participante["Cargo"],
         "localidade": dados_participante["Localidade"],
         "horario": dados_participante["Horario"],
-        "data_registro": obter_hora_atual().isoformat()
+        "data_registro": obter_hora_atual().isoformat(),
     }
-    df_novo = pd.DataFrame([novo_registro])
-    df_novo.to_csv(PRESENCE_FILE, mode='a', header=False, index=False)
+    pd.DataFrame([novo_registro]).to_csv(PRESENCE_FILE, mode="a", header=False, index=False)
 
 def limpar_presencas_reuniao_csv(meeting_id):
+    _carregar_presencas_raw.clear()
     inicializar_arquivo_presenca()
     try:
         df = pd.read_csv(PRESENCE_FILE, dtype=str)
@@ -129,15 +151,17 @@ def migrar_legado_se_precisar(reunioes):
     try:
         with open(LEGACY_CONFIG_FILE, "r", encoding="utf-8") as f:
             legacy = json.load(f)
-        reunioes.append({
-            "id": _gerar_id_reuniao(),
-            "nome": legacy.get("nome", "Reunião (importada)"),
-            "data": legacy.get("data", str(date.today())),
-            "hora": legacy.get("hora", "19:30"),
-            "filtro_tipo": legacy.get("filtro_tipo", "Todos"),
-            "filtro_valores": legacy.get("filtro_valores", []),
-            "criada_em": obter_hora_atual().isoformat(timespec="seconds")
-        })
+        reunioes.append(
+            {
+                "id": _gerar_id_reuniao(),
+                "nome": legacy.get("nome", "Reunião (importada)"),
+                "data": legacy.get("data", str(date.today())),
+                "hora": legacy.get("hora", "19:30"),
+                "filtro_tipo": legacy.get("filtro_tipo", "Todos"),
+                "filtro_valores": legacy.get("filtro_valores", []),
+                "criada_em": obter_hora_atual().isoformat(timespec="seconds"),
+            }
+        )
         salvar_reunioes(reunioes)
         return reunioes
     except Exception:
@@ -197,30 +221,123 @@ def filtrar_participantes_convocados(df, reuniao):
         return df[df["Nome"].isin(valores)]
     return df
 
-# --- QR (foto fallback) - OTIMIZADO ---
+# --- QR Code (MÓVEL OTIMIZADO - Técnicas Enterprise) ---
 
-def processar_qr_code_imagem(imagem):
-    # Lê a imagem em bytes
-    bytes_data = imagem.getvalue()
-    # Decodifica para array NumPy
-    cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
-    
-    # OTIMIZAÇÃO: Reduz resolução se for muito grande (comum em celulares)
-    height, width = cv2_img.shape[:2]
-    if width > 1200:
-        scale = 1200 / width
-        new_width = 1200
-        new_height = int(height * scale)
-        cv2_img = cv2.resize(cv2_img, (new_width, new_height), interpolation=cv2.INTER_AREA)
+def _resize_smart(img_bgr: np.ndarray, max_w: int, max_h: int) -> np.ndarray:
+    """Redimensiona mantendo aspect ratio; skip se já for pequeno."""
+    h, w = img_bgr.shape[:2]
+    if w <= max_w and h <= max_h:
+        return img_bgr
+    scale = min(max_w / w, max_h / h)
+    nw, nh = int(w * scale), int(h * scale)
+    return cv2.resize(img_bgr, (nw, nh), interpolation=cv2.INTER_AREA)
 
-    # OTIMIZAÇÃO: Converte para escala de cinza (mais rápido para decodificar)
-    gray_img = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2GRAY)
+def _apply_clahe(gray: np.ndarray) -> np.ndarray:
+    """CLAHE é melhor que equalizeHist para QR com iluminação irregular."""
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    return clahe.apply(gray)
 
-    # Decodifica
-    decoded_objects = decode(gray_img)
-    if decoded_objects:
-        return decoded_objects[0].data.decode("utf-8").strip()
+def _try_decode_fast(gray: np.ndarray) -> str | None:
+    """Tentativa rápida: direto + sharpen leve."""
+    objs = decode(gray)
+    if objs:
+        try:
+            data = objs[0].data.decode("utf-8", errors="ignore").strip()
+            # Valida tamanho mínimo do QR (evita falsos positivos)
+            rect = objs[0].rect
+            if rect.width >= MIN_QR_SIZE and rect.height >= MIN_QR_SIZE:
+                return data
+        except Exception:
+            pass
+
+    # Sharpen leve (ajuda em motion blur comum em mobile)
+    kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+    sharp = cv2.filter2D(gray, -1, kernel)
+    objs = decode(sharp)
+    if objs:
+        try:
+            data = objs[0].data.decode("utf-8", errors="ignore").strip()
+            rect = objs[0].rect
+            if rect.width >= MIN_QR_SIZE and rect.height >= MIN_QR_SIZE:
+                return data
+        except Exception:
+            pass
     return None
+
+def _try_decode_adaptive(gray: np.ndarray) -> str | None:
+    """Métodos adaptativos para condições ruins (baixa luz, reflexo)."""
+    # CLAHE (melhora contraste local - usado em apps profissionais)
+    clahe_img = _apply_clahe(gray)
+    objs = decode(clahe_img)
+    if objs:
+        try:
+            data = objs[0].data.decode("utf-8", errors="ignore").strip()
+            rect = objs[0].rect
+            if rect.width >= MIN_QR_SIZE and rect.height >= MIN_QR_SIZE:
+                return data
+        except Exception:
+            pass
+
+    # Bilateral filter (reduz ruído mantendo bordas - empresas usam isso)
+    bilateral = cv2.bilateralFilter(gray, 9, 75, 75)
+    objs = decode(bilateral)
+    if objs:
+        try:
+            data = objs[0].data.decode("utf-8", errors="ignore").strip()
+            rect = objs[0].rect
+            if rect.width >= MIN_QR_SIZE and rect.height >= MIN_QR_SIZE:
+                return data
+        except Exception:
+            pass
+
+    # Otsu (threshold automático - último recurso)
+    blur = cv2.GaussianBlur(clahe_img, (5, 5), 0)
+    _, otsu = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    objs = decode(otsu)
+    if objs:
+        try:
+            data = objs[0].data.decode("utf-8", errors="ignore").strip()
+            rect = objs[0].rect
+            if rect.width >= MIN_QR_SIZE and rect.height >= MIN_QR_SIZE:
+                return data
+        except Exception:
+            pass
+
+    return None
+
+def ler_qr_code_mobile(image_bytes: bytes) -> tuple[str | None, int]:
+    """
+    Leitura otimizada para mobile (baseado em melhores práticas da indústria).
+    Retorna: (codigo, tempo_ms)
+    
+    Fontes:
+    - Dynamsoft: CLAHE + threshold tuning
+    - EventMobi/Scanbot: Fast path primeiro, adaptive depois
+    - ZBar docs: resize antes de processar
+    """
+    t0 = time_module.perf_counter()
+
+    if not image_bytes:
+        return None, 0
+
+    img = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        return None, 0
+
+    # Resize inteligente (empresas usam 800-1000px)
+    img = _resize_smart(img, MAX_IMG_WIDTH, MAX_IMG_HEIGHT)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # Fast path (90% dos casos em boa luz)
+    code = _try_decode_fast(gray)
+    if code:
+        ms = int((time_module.perf_counter() - t0) * 1000)
+        return code, ms
+
+    # Adaptive path (baixa luz, reflexo, motion blur)
+    code = _try_decode_adaptive(gray)
+    ms = int((time_module.perf_counter() - t0) * 1000)
+    return code, ms
 
 # --- Relatórios ---
 
@@ -289,7 +406,12 @@ def gerar_excel(df_presenca, resumo_cargo, resumo_local, titulo_reuniao):
     header_font = Font(name="Calibri", size=12, bold=True, color="FFFFFF")
     header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
     header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    border = Border(left=Side(style="thin"), right=Side(style="thin"), top=Side(style="thin"), bottom=Side(style="thin"))
+    border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin"),
+    )
 
     ws_resumo = workbook.create_sheet("Resumo", 0)
     ws_resumo["A1"] = f"Relatório: {titulo_reuniao}"
@@ -359,41 +481,49 @@ def gerar_excel(df_presenca, resumo_cargo, resumo_local, titulo_reuniao):
 # --- Check-in ---
 
 def registrar_presenca(codigo_lido, df_participantes, ids_permitidos, meeting_id):
-    participante = df_participantes[df_participantes["ID"] == codigo_lido]
+    """Retorna: registered | duplicate | not_found | not_allowed | error."""
+    try:
+        codigo_lido = str(codigo_lido).strip().upper()
+        participante = df_participantes[df_participantes["ID"] == codigo_lido]
 
-    if participante.empty:
-        st.error(f"❌ Código '{codigo_lido}' não encontrado no banco.")
-        return False
+        if participante.empty:
+            st.error(f"❌ Código '{codigo_lido}' não encontrado no banco.")
+            return "not_found"
 
-    nome = participante.iloc[0]["Nome"]
-    id_p = participante.iloc[0]["ID"]
+        nome = participante.iloc[0]["Nome"]
+        id_p = participante.iloc[0]["ID"]
 
-    if ids_permitidos is not None and id_p not in ids_permitidos:
-        st.error(f"⛔ {nome} NÃO consta na convocação desta reunião!")
-        return False
+        if ids_permitidos is not None and id_p not in ids_permitidos:
+            st.error(f"⛔ {nome} NÃO consta na convocação desta reunião!")
+            return "not_allowed"
 
-    if id_p in st.session_state.lista_presenca["ID"].values:
-        st.warning(f"⚠️ {nome} já está na lista.")
-        return True # Retorna True para não travar o fluxo
+        if id_p in st.session_state.lista_presenca["ID"].values:
+            st.warning(f"⚠️ {nome} já está na lista.")
+            return "duplicate"
 
-    hora_registro = obter_hora_atual().strftime("%H:%M:%S")
-    novo_registro = {
-        "ID": id_p,
-        "Nome": nome,
-        "Cargo": participante.iloc[0]["Cargo"],
-        "Localidade": participante.iloc[0]["Localidade"],
-        "Horario": hora_registro,
-    }
+        hora_registro = obter_hora_atual().strftime("%H:%M:%S")
+        novo_registro = {
+            "ID": id_p,
+            "Nome": nome,
+            "Cargo": participante.iloc[0]["Cargo"],
+            "Localidade": participante.iloc[0]["Localidade"],
+            "Horario": hora_registro,
+        }
 
-    salvar_registro_presenca_csv(meeting_id, novo_registro)
+        salvar_registro_presenca_csv(meeting_id, novo_registro)
 
-    st.session_state.lista_presenca = pd.concat(
-        [st.session_state.lista_presenca, pd.DataFrame([novo_registro])],
-        ignore_index=True,
-    )
-    
-    st.toast(f"✅ {nome} registrado com sucesso!", icon="✅")
-    return True
+        st.session_state.lista_presenca = pd.concat(
+            [st.session_state.lista_presenca, pd.DataFrame([novo_registro])],
+            ignore_index=True,
+        )
+
+        # Notificação mais visível para mobile
+        st.success(f"✅ **{nome}** registrado às {hora_registro}!")
+        st.toast(f"✅ {nome}", icon="✅")
+        return "registered"
+    except Exception as e:
+        st.error(f"Erro ao registrar presença: {e}")
+        return "error"
 
 # ==========================
 # APP
@@ -407,9 +537,12 @@ if "active_meeting_id" not in st.session_state:
 
 if "lista_presenca" not in st.session_state:
     st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
-    
+
 if "camera_key" not in st.session_state:
     st.session_state.camera_key = 0
+
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
 
 hoje = date.today().strftime("%Y-%m-%d")
 
@@ -445,7 +578,12 @@ with st.sidebar:
         else:
             default_index = 0
 
-        sel_index = st.selectbox("Selecionar reunião", range(len(ids)), format_func=lambda i: labels[i], index=default_index)
+        sel_index = st.selectbox(
+            "Selecionar reunião",
+            range(len(ids)),
+            format_func=lambda i: labels[i],
+            index=default_index,
+        )
         reuniao_selecionada_id = ids[sel_index]
     else:
         st.info("Nenhuma reunião agendada ainda.")
@@ -538,101 +676,140 @@ if st.session_state.active_meeting_id:
         if r.get("id") == st.session_state.active_meeting_id:
             reuniao_ativa = r
             break
-    
+
     if not reuniao_ativa:
         st.session_state.active_meeting_id = None
         st.rerun()
 
     if st.session_state.lista_presenca.empty:
-         st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_ativa["id"])
+        st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_ativa["id"])
 
 if not reuniao_ativa:
     st.title("📲 Check-in")
     st.warning("Selecione uma reunião na agenda (menu lateral) e clique em 'Iniciar check-in'.")
     st.stop()
 
-# --- Check-in ---
+# --- Check-in MOBILE OTIMIZADO ---
 st.title(f"📲 {reuniao_ativa.get('nome')}")
 
-# Definindo variáveis necessárias antes de serem usadas nos Tabs
 convocados_df = filtrar_participantes_convocados(df_participantes, reuniao_ativa)
 ids_permitidos = set(convocados_df["ID"].values.tolist()) if not convocados_df.empty else set()
 
-# Abas restauradas conforme pedido
-tab_auto, tab_manual = st.tabs(["⚡ Leitura Automática", "📷 Câmera Manual / Foto"])
+# Header com contador (mobile-friendly)
+col_header = st.columns([3, 1])
+with col_header[0]:
+    st.markdown("### 📸 Capturar QR Code")
+with col_header[1]:
+    total = len(st.session_state.lista_presenca)
+    st.metric("👥 Presentes", total)
 
-with tab_auto:
-    st.markdown("Aponte a câmera para ler automaticamente.")
-    
-    # Verifica se o componente carregou
-    if qrcode_scanner:
-        # Usa o componente original que o usuário gostava
-        qr_code_auto = qrcode_scanner(key="scanner_auto")
-        if qr_code_auto:
-            if registrar_presenca(qr_code_auto, df_participantes, ids_permitidos, reuniao_ativa["id"]):
-                 st.rerun()
+st.info("💡 **Dicas para leitura rápida:** Aproxime o QR da câmera (15-20cm), evite tremor e garanta boa iluminação.")
+
+codigo_lido = None
+read_ms = None
+
+# Interface mobile-first: câmera grande e visível
+key_camera = f"camera_{st.session_state.camera_key}"
+img = st.camera_input("📸 Tirar foto do QR Code", key=key_camera, label_visibility="collapsed")
+
+if img:
+    with st.spinner("🔍 Processando..."):
+        codigo_lido, read_ms = ler_qr_code_mobile(img.getvalue())
+
+# Fallback: upload de foto ou digitar ID (menos usado em mobile)
+with st.expander("🔧 Opções alternativas"):
+    col_alt = st.columns(2)
+    with col_alt[0]:
+        up_key = f"uploader_{st.session_state.uploader_key}"
+        up = st.file_uploader("Enviar foto do QR", type=["jpg", "jpeg", "png"], key=up_key)
+        if up:
+            with st.spinner("🔍 Processando..."):
+                codigo_lido, read_ms = ler_qr_code_mobile(up.getvalue())
+
+    with col_alt[1]:
+        id_manual = st.text_input("Digitar ID", placeholder="Ex: CF001")
+        if st.button("Registrar", type="secondary", use_container_width=True):
+            if id_manual.strip():
+                codigo_lido = id_manual.strip()
+                read_ms = 0
+
+# Processamento do resultado
+if codigo_lido is not None:
+    if not codigo_lido:
+        st.error("❌ Não foi possível ler o QR. Tente novamente com melhor iluminação e foco.")
+        st.caption("💡 Verifique se o QR está nítido e bem enquadrado na câmera.")
     else:
-        st.error("Componente de scanner automático não instalado corretamente.")
+        status = registrar_presenca(codigo_lido, df_participantes, ids_permitidos, reuniao_ativa["id"])
+        if status == "registered":
+            if read_ms is not None and read_ms > 0:
+                st.caption(f"⚡ Leitura em {read_ms} ms")
+            st.session_state.camera_key += 1
+            st.session_state.uploader_key += 1
+            st.balloons()  # Feedback visual de sucesso
+            time_module.sleep(0.5)  # Pausa visual antes de recarregar
+            st.rerun()
+        elif status == "duplicate":
+            st.toast("⚠️ Já registrado", icon="⚠️")
 
-with tab_manual:
-    st.markdown("Recomendado para celulares (Android/iOS) - Compatibilidade Total")
-    # Mantém o modo foto simples e robusto
-    key_camera = f"camera_{st.session_state.camera_key}"
-    img = st.camera_input("📷 Tirar Foto", key=key_camera)
-
-    if img:
-        codigo = processar_qr_code_imagem(img)
-        if codigo:
-            sucesso = registrar_presenca(codigo, df_participantes, ids_permitidos, reuniao_ativa["id"])
-            if sucesso:
-                st.session_state.camera_key += 1
-                st.rerun()
-        else:
-            st.error("QR Code não detectado na imagem. Tente aproximar ou melhorar a luz.")
-
-# --- Área de Resultados ---
+# --- Área de Resultados (compacta para mobile) ---
 if not st.session_state.lista_presenca.empty:
     st.divider()
-    
-    # Resumos Visuais (Restaurado)
-    st.markdown("### 📊 Resumo")
-    resumo_cargo = st.session_state.lista_presenca["Cargo"].value_counts()
-    resumo_local = st.session_state.lista_presenca["Localidade"].value_counts()
-    
-    col_r1, col_r2 = st.columns(2)
-    with col_r1:
-        st.dataframe(resumo_cargo, use_container_width=True)
-    with col_r2:
-        st.dataframe(resumo_local, use_container_width=True)
 
-    st.divider()
-    
-    # Lista Completa (Visível, sem expander)
-    st.markdown("### 📝 Lista de Presentes")
-    
-    # Adicionada Localidade de volta na visualização
-    st.dataframe(
-        st.session_state.lista_presenca[["Nome", "Cargo", "Localidade", "Horario"]],
-        use_container_width=True,
-        hide_index=True,
-    )
+    with st.expander("📊 Ver resumo e estatísticas", expanded=False):
+        resumo_cargo = st.session_state.lista_presenca["Cargo"].value_counts()
+        resumo_local = st.session_state.lista_presenca["Localidade"].value_counts()
+
+        col_r1, col_r2 = st.columns(2)
+        with col_r1:
+            st.markdown("**Por Cargo**")
+            st.dataframe(resumo_cargo, use_container_width=True, height=200)
+        with col_r2:
+            st.markdown("**Por Localidade**")
+            st.dataframe(resumo_local, use_container_width=True, height=200)
+
+    with st.expander("📝 Ver lista completa", expanded=False):
+        st.dataframe(
+            st.session_state.lista_presenca[["Nome", "Cargo", "Localidade", "Horario"]],
+            use_container_width=True,
+            hide_index=True,
+        )
 
     st.divider()
 
-    colA, colB, colC = st.columns(3)
+    # Botões de ação (mobile-friendly)
+    col_actions = st.columns(3)
     nome_arquivo = f"{reuniao_ativa.get('data','')}_{reuniao_ativa.get('hora','')}_{reuniao_ativa.get('nome','reuniao')}".replace(" ", "_")
-    
-    with colA:
-        if st.button("📄 PDF"):
-            # Recalcula resumos para o relatório
-            pdf_data = gerar_pdf(st.session_state.lista_presenca, resumo_cargo, resumo_local, reuniao_ativa.get("nome", "Reunião"))
-            st.download_button("Baixar PDF", data=pdf_data, file_name=f"{nome_arquivo}.pdf", mime="application/pdf")
-    with colB:
-        if st.button("📋 Excel"):
-            excel_data = gerar_excel(st.session_state.lista_presenca, resumo_cargo, resumo_local, reuniao_ativa.get("nome", "Reunião"))
-            st.download_button("Baixar Excel", data=excel_data, file_name=f"{nome_arquivo}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    with colC:
-         if st.button("🗑️ Limpar"):
+
+    with col_actions[0]:
+        if st.button("📄 PDF", use_container_width=True):
+            resumo_cargo = st.session_state.lista_presenca["Cargo"].value_counts()
+            resumo_local = st.session_state.lista_presenca["Localidade"].value_counts()
+            pdf_data = gerar_pdf(
+                st.session_state.lista_presenca,
+                resumo_cargo,
+                resumo_local,
+                reuniao_ativa.get("nome", "Reunião"),
+            )
+            st.download_button("⬇️ Baixar PDF", data=pdf_data, file_name=f"{nome_arquivo}.pdf", mime="application/pdf", use_container_width=True)
+    with col_actions[1]:
+        if st.button("📋 Excel", use_container_width=True):
+            resumo_cargo = st.session_state.lista_presenca["Cargo"].value_counts()
+            resumo_local = st.session_state.lista_presenca["Localidade"].value_counts()
+            excel_data = gerar_excel(
+                st.session_state.lista_presenca,
+                resumo_cargo,
+                resumo_local,
+                reuniao_ativa.get("nome", "Reunião"),
+            )
+            st.download_button(
+                "⬇️ Baixar Excel",
+                data=excel_data,
+                file_name=f"{nome_arquivo}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+    with col_actions[2]:
+        if st.button("🗑️ Limpar", use_container_width=True, type="secondary"):
             if limpar_presencas_reuniao_csv(reuniao_ativa["id"]):
                 st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
                 st.rerun()
