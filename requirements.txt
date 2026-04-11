@@ -6,3 +6,5 @@ openpyxl
 pytz
 qrcode[pil]
 Pillow
+pyzbar
+numpy
