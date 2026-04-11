@@ -44,7 +44,6 @@ st.markdown("""
     background: rgba(99,102,241,0.35) !important;
     transform: translateX(3px) !important;
 }
-/* Botao primario sidebar */
 [data-testid="stSidebar"] .stButton > button[kind="primary"] {
     background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
     border: none !important; color: white !important;
@@ -95,7 +94,7 @@ st.markdown("""
 .mc-blue  .metric-value { color: #60a5fa; }
 .mc-green .metric-value { color: #34d399; }
 .mc-red   .metric-value { color: #f87171; }
-.mc-purple.metric-value { color: #a78bfa; }
+.mc-purple .metric-value { color: #a78bfa; }
 .mc-purple { border-color: rgba(167,139,250,0.3) !important; }
 .mc-blue   { border-color: rgba(96,165,250,0.3) !important; }
 .mc-green  { border-color: rgba(52,211,153,0.3) !important; }
@@ -159,6 +158,51 @@ st.markdown("""
 }
 .membro-card .m-nome { color: #e2e8f0; font-size: 1rem; font-weight: 700; }
 .membro-card .m-det  { color: #94a3b8; font-size: 0.85rem; margin-top: 4px; }
+
+/* ===== REUNIAO CARD (tela inicial) ===== */
+.reuniao-card {
+    background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(139,92,246,0.08));
+    border: 1px solid rgba(99,102,241,0.35);
+    border-radius: 20px;
+    padding: 28px 32px;
+    margin: 12px 0;
+    transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+    cursor: pointer;
+}
+.reuniao-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 36px rgba(99,102,241,0.25);
+    border-color: rgba(139,92,246,0.6);
+}
+.reuniao-card .rc-hora {
+    color: #a5b4fc;
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 6px 0;
+    letter-spacing: 1px;
+}
+.reuniao-card .rc-nome {
+    color: #ffffff;
+    font-size: 1.5rem;
+    font-weight: 800;
+    margin: 0 0 10px 0;
+}
+.reuniao-card .rc-data {
+    color: #64748b;
+    font-size: 0.85rem;
+}
+.reuniao-hoje-badge {
+    display: inline-block;
+    background: linear-gradient(90deg,#22c55e,#16a34a);
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 2px 10px;
+    border-radius: 99px;
+    margin-left: 10px;
+    vertical-align: middle;
+}
 
 /* ===== CAMERA ===== */
 [data-testid="stCameraInput"] > div {
@@ -239,9 +283,6 @@ st.markdown("""
     box-shadow: 0 0 0 3px rgba(99,102,241,0.2) !important;
 }
 
-/* ===== TOGGLE ===== */
-.stToggle { margin: 6px 0 14px 0; }
-
 /* ===== SCROLLBAR ===== */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
@@ -269,7 +310,6 @@ st.markdown("""
 [data-testid="stMetricValue"] { color: #a5b4fc !important; }
 [data-testid="stMetricLabel"] { color: #64748b !important; font-size: 0.78rem !important; }
 
-/* Esconde watermark Streamlit */
 #MainMenu, footer, header { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
@@ -502,16 +542,6 @@ with st.sidebar:
     sec("📅", "AGENDA")
     mostrar_passadas = st.checkbox("Mostrar passadas", value=False)
     reunioes_visiveis = [r for r in reunioes if mostrar_passadas or r.get("data","")>=hoje]
-    reunioes_hoje = [r for r in reunioes if r.get("data")==hoje]
-
-    if reunioes_hoje:
-        for r in reunioes_hoje[:6]:
-            if st.button(f"▶️ {r.get('hora','')} — {r.get('nome','')}", key=f"st_{r['id']}", use_container_width=True):
-                st.session_state.active_meeting_id = r["id"]
-                st.session_state.lista_presenca = carregar_presencas_reuniao(r["id"])
-                st.session_state.feedback_status = None
-                st.session_state.ultimo_registrado = None
-                st.rerun()
 
     reuniao_selecionada_id = None
     if reunioes_visiveis:
@@ -590,19 +620,75 @@ if st.session_state.active_meeting_id:
         if r.get("id")==st.session_state.active_meeting_id: reuniao_ativa=r; break
     if not reuniao_ativa: st.session_state.active_meeting_id=None; st.rerun()
 
+# ════════════════════ TELA INICIAL ════════════════════
 if not reuniao_ativa:
-    # Tela de boas-vindas
-    st.markdown('<br>', unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Cabeçalho central
     st.markdown("""
-<div style="text-align:center;padding:60px 20px">
-<div style="font-size:5rem;margin-bottom:16px">🎵</div>
-<h1 style="color:#a5b4fc;font-size:2.4rem;font-weight:800;margin:0">CCB Musical</h1>
-<p style="color:#64748b;font-size:1.1rem;margin:12px 0 32px">Sistema de Controle de Presença</p>
-<div style="background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);border-radius:16px;padding:24px 32px;display:inline-block;max-width:400px">
-<p style="color:#a5b4fc;margin:0;font-size:0.95rem">← Selecione uma reunião no menu lateral<br>e clique em <b>Iniciar Check-in</b> para começar.</p>
-</div>
+<div style="text-align:center;margin-bottom:32px">
+  <div style="font-size:4rem;margin-bottom:10px">🎵</div>
+  <h1 style="color:#a5b4fc;font-size:2.2rem;font-weight:800;margin:0">CCB Musical</h1>
+  <p style="color:#64748b;font-size:1rem;margin:8px 0 0">Sistema de Controle de Presença</p>
 </div>
 """, unsafe_allow_html=True)
+
+    reunioes_hoje   = [r for r in reunioes if r.get("data")==hoje]
+    reunioes_futuras= [r for r in reunioes if r.get("data","")>hoje]
+
+    # ── Cards das reuniões de HOJE ──
+    if reunioes_hoje:
+        sec("📅", "REUNIÕES DE HOJE")
+        cols = st.columns(min(len(reunioes_hoje), 3))
+        for i, r in enumerate(reunioes_hoje):
+            with cols[i % len(cols)]:
+                st.markdown(f"""
+<div class="reuniao-card">
+  <p class="rc-hora">🕐 {r.get('hora','?')}</p>
+  <p class="rc-nome">{r.get('nome','?')}</p>
+  <p class="rc-data">📅 {r.get('data','?')} <span class="reuniao-hoje-badge">HOJE</span></p>
+</div>
+""", unsafe_allow_html=True)
+                if st.button(f"▶ Iniciar Check-in", key=f"btn_hoje_{r['id']}", type="primary", use_container_width=True):
+                    st.session_state.active_meeting_id = r["id"]
+                    st.session_state.lista_presenca = carregar_presencas_reuniao(r["id"])
+                    st.session_state.feedback_status = None
+                    st.session_state.ultimo_registrado = None
+                    st.rerun()
+
+    # ── Próximas reuniões ──
+    elif reunioes_futuras:
+        sec("📆", "PRÓXIMAS REUNIÕES")
+        cols = st.columns(min(len(reunioes_futuras[:3]), 3))
+        for i, r in enumerate(reunioes_futuras[:3]):
+            with cols[i % len(cols)]:
+                st.markdown(f"""
+<div class="reuniao-card">
+  <p class="rc-hora">🕐 {r.get('hora','?')}</p>
+  <p class="rc-nome">{r.get('nome','?')}</p>
+  <p class="rc-data">📅 {r.get('data','?')}</p>
+</div>
+""", unsafe_allow_html=True)
+                if st.button(f"▶ Iniciar Check-in", key=f"btn_fut_{r['id']}", type="primary", use_container_width=True):
+                    st.session_state.active_meeting_id = r["id"]
+                    st.session_state.lista_presenca = carregar_presencas_reuniao(r["id"])
+                    st.session_state.feedback_status = None
+                    st.session_state.ultimo_registrado = None
+                    st.rerun()
+
+    # ── Nenhuma reunião ──
+    else:
+        _, col_c, _ = st.columns([1,2,1])
+        with col_c:
+            st.markdown("""
+<div style="background:rgba(99,102,241,0.08);border:1px dashed rgba(99,102,241,0.4);
+            border-radius:20px;padding:40px 32px;text-align:center;">
+  <div style="font-size:3rem;margin-bottom:12px">📭</div>
+  <p style="color:#a5b4fc;font-size:1.1rem;font-weight:600;margin:0">Nenhuma reunião agendada</p>
+  <p style="color:#475569;font-size:0.9rem;margin:10px 0 0">Crie uma nova reunião no menu lateral ←</p>
+</div>
+""", unsafe_allow_html=True)
+
     st.stop()
 
 
@@ -623,7 +709,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Métricas em cards custom
 st.markdown(
     f'<div class="metric-row">'
     f'{metric_card(total_conv,  "Convocados",  "blue")}'
@@ -634,7 +719,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Barra de progresso customizada
 st.markdown(
     f'<div class="prog-wrap"><div class="prog-fill" style="width:{porc}%"></div></div>',
     unsafe_allow_html=True
@@ -713,7 +797,6 @@ with aba_cam:
         else:
             st.markdown('<div class="fb-idle"><p class="fb-title">📷 Aguardando foto do QR Code...</p></div>', unsafe_allow_html=True)
 
-        # Último registrado (quando não é o atual)
         if not (s=="ok" and ur) and not st.session_state.lista_presenca.empty:
             ult = st.session_state.lista_presenca.iloc[-1]
             st.markdown(f'<div class="membro-card" style="margin-top:16px"><p class="m-nome" style="color:#94a3b8;font-size:0.8rem">⏱ Último registrado</p><p class="m-nome">{ult["Nome"]}</p><p class="m-det">{ult["Horario"]}</p></div>', unsafe_allow_html=True)
