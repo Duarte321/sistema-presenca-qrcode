@@ -7,25 +7,34 @@ from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import json
-import urllib.parse
 from supabase import create_client, Client
-import qrcode
+from pyzbar.pyzbar import decode
 from PIL import Image
+import numpy as np
 
 st.set_page_config(page_title="Check-in QR Code", layout="wide")
 
 st.markdown("""
 <style>
-.qr-box {
-    background: white; border-radius: 18px; padding: 18px;
-    display: inline-block; text-align: center;
-    box-shadow: 0 4px 20px rgba(0,212,170,0.3);
+.card-ok {
+    background: linear-gradient(135deg,#1a7a4a,#25a060);
+    color:white; padding:18px 24px; border-radius:14px;
+    font-size:1.3rem; font-weight:bold; text-align:center; margin:8px 0;
+}
+.card-warn {
+    background: linear-gradient(135deg,#7a6200,#c9960c);
+    color:white; padding:16px 24px; border-radius:14px;
+    font-size:1.1rem; font-weight:bold; text-align:center; margin:8px 0;
+}
+.card-erro {
+    background: linear-gradient(135deg,#7a1a1a,#c0392b);
+    color:white; padding:16px 24px; border-radius:14px;
+    font-size:1.1rem; font-weight:bold; text-align:center; margin:8px 0;
 }
 </style>
 """, unsafe_allow_html=True)
 
-GITHUB_PAGES_URL = "https://duarte321.github.io/sistema-presenca-qrcode/leitor.html"
-
+# ── Supabase ──────────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -38,7 +47,8 @@ def obter_hora_atual():
 def _parse_date(s): return datetime.strptime(s, "%Y-%m-%d").date()
 def _parse_time(s): return datetime.strptime(s, "%H:%M").time()
 
-@st.cache_data(ttl=30)
+# ── Participantes ─────────────────────────────────────────────────────────────
+@st.cache_data(ttl=60)
 def carregar_dados_participantes():
     try:
         res = supabase_client.table("participantes").select("*").execute()
@@ -50,6 +60,20 @@ def carregar_dados_participantes():
     except Exception as e:
         st.error(f"Erro: {e}"); return pd.DataFrame()
 
+def filtrar_participantes_convocados(df, reuniao):
+    if df.empty or not reuniao: return df
+    tipo    = reuniao.get("filtro_tipo", "Todos")
+    valores = reuniao.get("filtro_valores", [])
+    cc = "Cargo" if "Cargo" in df.columns else "cargo"
+    cl = "Localidade" if "Localidade" in df.columns else "localidade"
+    cn = "Nome" if "Nome" in df.columns else "nome"
+    if tipo == "Todos": return df
+    if tipo == "Por Cargo": return df[df[cc].isin(valores)]
+    if tipo == "Por Localidade": return df[df[cl].isin(valores)]
+    if tipo == "Manual": return df[df[cn].isin(valores)]
+    return df
+
+# ── Presenças ─────────────────────────────────────────────────────────────────
 def carregar_presencas_reuniao(mid):
     try:
         res = supabase_client.table("presencas").select("*").eq("meeting_id", str(mid)).execute()
@@ -63,6 +87,19 @@ def carregar_presencas_reuniao(mid):
         st.error(f"Erro: {e}")
         return pd.DataFrame(columns=["ID","Nome","Cargo","Localidade","Horario"])
 
+def salvar_presenca(mid, row):
+    try:
+        supabase_client.table("presencas").insert({
+            "meeting_id": str(mid),
+            "id_participante": str(row["ID"]),
+            "nome": row["Nome"], "cargo": row["Cargo"],
+            "localidade": row["Localidade"], "horario": row["Horario"],
+            "data_registro": obter_hora_atual().isoformat()
+        }).execute()
+        return True
+    except Exception as e:
+        st.error(f"Erro ao salvar: {e}"); return False
+
 def limpar_presencas_reuniao(mid):
     try:
         supabase_client.table("presencas").delete().eq("meeting_id", str(mid)).execute()
@@ -70,6 +107,7 @@ def limpar_presencas_reuniao(mid):
     except Exception as e:
         st.error(f"Erro: {e}"); return False
 
+# ── Reuniões ──────────────────────────────────────────────────────────────────
 def carregar_reunioes():
     try:
         res = supabase_client.table("reunioes").select("*").order("data").execute()
@@ -104,25 +142,40 @@ def atualizar_ou_criar_reuniao(reunioes, reuniao):
 def label_reuniao(r):
     return f"{r.get('data','?')} {r.get('hora','?')} - {r.get('nome','?')}"
 
-def filtrar_participantes_convocados(df, reuniao):
-    if df.empty or not reuniao: return df
-    tipo    = reuniao.get("filtro_tipo", "Todos")
-    valores = reuniao.get("filtro_valores", [])
-    cc = "Cargo" if "Cargo" in df.columns else "cargo"
-    cl = "Localidade" if "Localidade" in df.columns else "localidade"
-    cn = "Nome" if "Nome" in df.columns else "nome"
-    if tipo == "Todos": return df
-    if tipo == "Por Cargo": return df[df[cc].isin(valores)]
-    if tipo == "Por Localidade": return df[df[cl].isin(valores)]
-    if tipo == "Manual": return df[df[cn].isin(valores)]
-    return df
+# ── Registro de presença ──────────────────────────────────────────────────────
+def registrar_por_codigo(codigo, df_part, meeting_id):
+    """Recebe um codigo (ID do participante), valida e registra."""
+    codigo = str(codigo).strip()
+    if not codigo:
+        return None, None
+    ci = "ID" if "ID" in df_part.columns else "id"
+    cn = "Nome" if "Nome" in df_part.columns else "nome"
+    cc = "Cargo" if "Cargo" in df_part.columns else "cargo"
+    cl = "Localidade" if "Localidade" in df_part.columns else "localidade"
 
-def gerar_qr_acesso(url: str) -> Image.Image:
-    qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=8, border=3)
-    qr.add_data(url)
-    qr.make(fit=True)
-    return qr.make_image(fill_color="#0f0f0f", back_color="white").convert("RGB")
+    part = df_part[df_part[ci].astype(str).str.strip() == codigo]
+    if part.empty:
+        return "erro", f"Codigo '{codigo}' nao encontrado."
 
+    nome = part.iloc[0][cn]
+    id_p = str(part.iloc[0][ci]).strip()
+
+    ja_presente = st.session_state.lista_presenca
+    if not ja_presente.empty and id_p in ja_presente["ID"].astype(str).values:
+        return "duplicado", f"{nome} ja registrado."
+
+    hora_reg = obter_hora_atual().strftime("%H:%M:%S")
+    novo = {"ID": id_p, "Nome": nome,
+            "Cargo": part.iloc[0][cc], "Localidade": part.iloc[0][cl],
+            "Horario": hora_reg}
+    if salvar_presenca(meeting_id, novo):
+        st.session_state.lista_presenca = pd.concat(
+            [st.session_state.lista_presenca, pd.DataFrame([novo])],
+            ignore_index=True)
+        return "ok", nome
+    return "erro", "Falha ao salvar no banco."
+
+# ── Exportação ────────────────────────────────────────────────────────────────
 def gerar_pdf(df_p, rc, rl, titulo):
     class PDF(FPDF):
         def header(self):
@@ -188,30 +241,28 @@ def gerar_excel(df_p, rc, rl, titulo):
     eb=BytesIO(); wb.save(eb); eb.seek(0)
     return eb.getvalue()
 
-# ==========================
+# ══════════════════════════════════════════════════════════════════════════════
 # INICIALIZACAO
-# ==========================
+# ══════════════════════════════════════════════════════════════════════════════
 df_participantes = carregar_dados_participantes()
 if not df_participantes.empty:
     df_participantes = df_participantes.rename(
         columns={"id":"ID","nome":"Nome","cargo":"Cargo","localidade":"Localidade"})
 
 reunioes = carregar_reunioes()
+hoje = date.today().strftime("%Y-%m-%d")
 
 defaults = {
     "active_meeting_id": None,
     "lista_presenca": pd.DataFrame(columns=["ID","Nome","Cargo","Localidade","Horario"]),
-    "ultimo_total": 0,
-    "polling_ativo": False,
-    "poll_count": 0,
+    "feedback_status": None,
+    "feedback_msg": "",
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-hoje = date.today().strftime("%Y-%m-%d")
-
-# --- Sidebar ---
+# ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("Agenda de Reunioes")
     mostrar_passadas = st.checkbox("Mostrar passadas", value=False)
@@ -220,11 +271,10 @@ with st.sidebar:
     if reunioes_hoje:
         st.markdown("**Hoje:**")
         for r in reunioes_hoje[:6]:
-            if st.button(f"Iniciar: {r.get('hora','')} - {r.get('nome','')}", key=f"st_{r['id']}"):
+            if st.button(f"▶ {r.get('hora','')} - {r.get('nome','')}", key=f"st_{r['id']}"):
                 st.session_state.active_meeting_id = r["id"]
                 st.session_state.lista_presenca = carregar_presencas_reuniao(r["id"])
-                st.session_state.polling_ativo = True
-                st.session_state.poll_count = 0
+                st.session_state.feedback_status = None
                 st.rerun()
     st.divider()
     reuniao_selecionada_id = None
@@ -237,12 +287,11 @@ with st.sidebar:
     else:
         st.info("Nenhuma reuniao agendada.")
     if reuniao_selecionada_id:
-        lbl = "Recarregar" if st.session_state.active_meeting_id == reuniao_selecionada_id else "Iniciar check-in"
+        lbl = "↺ Recarregar" if st.session_state.active_meeting_id == reuniao_selecionada_id else "▶ Iniciar check-in"
         if st.button(lbl, type="primary"):
             st.session_state.active_meeting_id = reuniao_selecionada_id
             st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_selecionada_id)
-            st.session_state.polling_ativo = True
-            st.session_state.poll_count = 0
+            st.session_state.feedback_status = None
             st.rerun()
     st.divider()
     st.header("Criar / Editar")
@@ -290,10 +339,9 @@ with st.sidebar:
             reunioes=excluir_reuniao(reunioes,rae["id"])
             if st.session_state.active_meeting_id==rae["id"]:
                 st.session_state.active_meeting_id=None
-                st.session_state.polling_ativo=False
             st.success("Reuniao excluida!"); st.rerun()
 
-# --- Reuniao Ativa ---
+# ── Reunião Ativa ─────────────────────────────────────────────────────────────
 reuniao_ativa = None
 if st.session_state.active_meeting_id:
     for r in reunioes:
@@ -307,66 +355,106 @@ if not reuniao_ativa:
     st.warning("Selecione uma reuniao no menu lateral e clique em Iniciar check-in.")
     st.stop()
 
-# --- Cabecalho ---
+# ── Cabeçalho ─────────────────────────────────────────────────────────────────
 st.title(f"Check-in: {reuniao_ativa.get('nome')}")
-conv_df = filtrar_participantes_convocados(df_participantes, reuniao_ativa)
-cid2 = "ID" if "ID" in conv_df.columns else "id"
-
+conv_df    = filtrar_participantes_convocados(df_participantes, reuniao_ativa)
 total_conv = len(conv_df)
 total_pres = len(st.session_state.lista_presenca)
-cc1,cc2,cc3,cc4 = st.columns(4)
+
+cc1,cc2,cc3 = st.columns(3)
 cc1.metric("Convocados", total_conv)
 cc2.metric("Presentes",  total_pres)
 cc3.metric("Faltantes",  max(0, total_conv - total_pres))
-cc4.metric("Auto-refresh", "Ativo ✅" if st.session_state.polling_ativo else "Pausado ⏸")
+st.divider()
+
+# ── Feedback ──────────────────────────────────────────────────────────────────
+def mostrar_feedback():
+    s = st.session_state.feedback_status
+    m = st.session_state.feedback_msg
+    if s == "ok":
+        st.markdown(f'<div class="card-ok">✅ Registrado com sucesso!<br><span style="font-size:1rem">{m}</span></div>', unsafe_allow_html=True)
+    elif s == "duplicado":
+        st.markdown(f'<div class="card-warn">⚠️ Ja registrado: {m}</div>', unsafe_allow_html=True)
+    elif s == "erro":
+        st.markdown(f'<div class="card-erro">❌ {m}</div>', unsafe_allow_html=True)
+
+# ── Abas de registro ──────────────────────────────────────────────────────────
+aba_cam, aba_manual = st.tabs(["📷  Foto do QR Code", "⌨️  Digitar Codigo"])
+
+# ---------- ABA 1: Câmera nativa Streamlit ----------
+with aba_cam:
+    st.markdown("##### Tire uma foto do QR Code do cracha")
+    st.caption("Use o botao abaixo para abrir a camera e fotografar o QR Code.")
+    foto = st.camera_input("Abrir camera", label_visibility="collapsed")
+
+    if foto is not None:
+        img = Image.open(foto)
+        decoded = decode(img)
+        if decoded:
+            codigo_qr = decoded[0].data.decode("utf-8").strip()
+            status, msg = registrar_por_codigo(codigo_qr, df_participantes, reuniao_ativa["id"])
+            st.session_state.feedback_status = status
+            st.session_state.feedback_msg    = msg
+            st.rerun()
+        else:
+            st.warning("QR Code nao identificado na imagem. Tente novamente com melhor iluminacao.")
+
+    mostrar_feedback()
+
+# ---------- ABA 2: Digitar código manualmente ----------
+with aba_manual:
+    st.markdown("##### Digite o codigo do participante")
+    st.caption("Informe o ID que esta impresso no cracha (ex: LC005) e clique em Registrar.")
+
+    with st.form("form_manual", clear_on_submit=True):
+        col_in, col_btn = st.columns([3,1])
+        with col_in:
+            codigo_digitado = st.text_input(
+                "Codigo",
+                placeholder="Ex: LC005, CF001...",
+                label_visibility="collapsed"
+            ).strip().upper()
+        with col_btn:
+            confirmar = st.form_submit_button("✔ Registrar", type="primary", use_container_width=True)
+
+    # Busca por nome tambem (autocomplete visual)
+    if not df_participantes.empty:
+        ci = "ID" if "ID" in df_participantes.columns else "id"
+        cn = "Nome" if "Nome" in df_participantes.columns else "nome"
+        cc2c = "Cargo" if "Cargo" in df_participantes.columns else "cargo"
+        cl   = "Localidade" if "Localidade" in df_participantes.columns else "localidade"
+        nome_busca = st.text_input("Ou busque pelo nome:", placeholder="Digite parte do nome...")
+        if nome_busca.strip():
+            filtrado = df_participantes[
+                df_participantes[cn].str.contains(nome_busca.strip(), case=False, na=False)
+            ][[ci,cn,cc2c,cl]]
+            if not filtrado.empty:
+                st.dataframe(filtrado.rename(columns={ci:"ID",cn:"Nome",cc2c:"Cargo",cl:"Localidade"}),
+                             hide_index=True, use_container_width=True)
+                codigo_sel = st.selectbox(
+                    "Selecione para registrar:",
+                    options=filtrado[ci].tolist(),
+                    format_func=lambda x: f"{x} — {filtrado[filtrado[ci]==x][cn].values[0]}"
+                )
+                if st.button("✔ Registrar selecionado", type="primary"):
+                    status, msg = registrar_por_codigo(str(codigo_sel), df_participantes, reuniao_ativa["id"])
+                    st.session_state.feedback_status = status
+                    st.session_state.feedback_msg    = msg
+                    st.rerun()
+            else:
+                st.info("Nenhum participante encontrado.")
+
+    if confirmar and codigo_digitado:
+        status, msg = registrar_por_codigo(codigo_digitado, df_participantes, reuniao_ativa["id"])
+        st.session_state.feedback_status = status
+        st.session_state.feedback_msg    = msg
+        st.rerun()
+
+    mostrar_feedback()
 
 st.divider()
 
-# --- QR Code de Acesso ---
-supa_url = st.secrets.get("SUPABASE_URL", "")
-supa_key = st.secrets.get("SUPABASE_KEY", "")
-nome_enc = urllib.parse.quote(reuniao_ativa.get("nome", ""))
-leitor_url = (
-    f"{GITHUB_PAGES_URL}"
-    f"?u={urllib.parse.quote(supa_url)}"
-    f"&k={urllib.parse.quote(supa_key)}"
-    f"&m={urllib.parse.quote(str(reuniao_ativa['id']))}"
-    f"&n={nome_enc}"
-)
-
-col_qr, col_info = st.columns([1, 2])
-with col_qr:
-    st.markdown("**Escaneie para abrir o leitor no celular:**")
-    qr_img = gerar_qr_acesso(leitor_url)
-    st.image(qr_img, width=220)
-
-with col_info:
-    st.markdown("### Como usar")
-    st.markdown("""
-**1.** Abra a camera do celular e aponte para o QR ao lado
-
-**2.** O leitor abre automaticamente no celular
-
-**3.** Aponte para o QR Code do cracha do membro
-
-**4.** O registro aparece aqui automaticamente
-""")
-    if st.session_state.polling_ativo:
-        st.success(f"Monitoramento ativo — ciclo #{st.session_state.poll_count}")
-        if st.button("⏸ Pausar monitoramento"):
-            st.session_state.polling_ativo = False
-            st.rerun()
-    else:
-        st.warning("Monitoramento pausado")
-        if st.button("▶ Ativar monitoramento", type="primary"):
-            st.session_state.polling_ativo = True
-            st.session_state.poll_count = 0
-            st.rerun()
-    st.markdown(f"[Abrir leitor diretamente]({leitor_url})")
-
-st.divider()
-
-# --- Lista de Presentes ---
+# ── Lista de Presentes ────────────────────────────────────────────────────────
 if not st.session_state.lista_presenca.empty:
     st.markdown("### Resumo")
     rc = st.session_state.lista_presenca["Cargo"].value_counts()
@@ -380,8 +468,8 @@ if not st.session_state.lista_presenca.empty:
         st.session_state.lista_presenca[["Nome","Cargo","Localidade","Horario"]],
         use_container_width=True, hide_index=True)
     st.divider()
-    cA,cB,cC = st.columns(3)
     arq = f"{reuniao_ativa.get('data','')}_{reuniao_ativa.get('hora','')}_{reuniao_ativa.get('nome','reuniao')}".replace(" ","_")
+    cA,cB,cC = st.columns(3)
     with cA:
         if st.button("Gerar PDF"):
             st.download_button("Baixar PDF",
@@ -398,21 +486,6 @@ if not st.session_state.lista_presenca.empty:
             if limpar_presencas_reuniao(reuniao_ativa["id"]):
                 st.session_state.lista_presenca = pd.DataFrame(
                     columns=["ID","Nome","Cargo","Localidade","Horario"])
-                st.session_state.ultimo_total = 0
                 st.rerun()
 else:
-    st.info("Nenhuma presenca registrada ainda. Aguardando leituras...")
-
-# --- Polling NO FINAL (nao bloqueia renderizacao) ---
-# Executa DEPOIS de tudo renderizado, ai faz rerun para atualizar
-if st.session_state.polling_ativo:
-    import time as _t
-    st.session_state.poll_count += 1
-    _t.sleep(5)
-    # Recarrega presenças do Supabase
-    nova_lista = carregar_presencas_reuniao(reuniao_ativa["id"])
-    novo_total  = len(nova_lista)
-    if novo_total != st.session_state.ultimo_total:
-        st.session_state.lista_presenca = nova_lista
-        st.session_state.ultimo_total   = novo_total
-    st.rerun()
+    st.info("Nenhuma presenca registrada ainda.")
