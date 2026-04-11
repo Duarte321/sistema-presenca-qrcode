@@ -7,7 +7,7 @@ from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import json
-import time as time_module
+import urllib.parse
 from supabase import create_client, Client
 import qrcode
 from PIL import Image
@@ -16,22 +16,6 @@ st.set_page_config(page_title="Check-in QR Code", layout="wide")
 
 st.markdown("""
 <style>
-.registro-ok {
-    background: linear-gradient(135deg, #1a7a4a, #25a060);
-    color: white; padding: 18px 24px; border-radius: 14px;
-    font-size: 1.4rem; font-weight: bold; text-align: center;
-    margin: 10px 0;
-}
-.registro-aviso {
-    background: linear-gradient(135deg, #b8860b, #e0a800);
-    color: white; padding: 18px 24px; border-radius: 14px;
-    font-size: 1.2rem; font-weight: bold; text-align: center; margin: 10px 0;
-}
-.registro-erro {
-    background: linear-gradient(135deg, #a00, #d32f2f);
-    color: white; padding: 18px 24px; border-radius: 14px;
-    font-size: 1.2rem; font-weight: bold; text-align: center; margin: 10px 0;
-}
 .qr-box {
     background: white; border-radius: 18px; padding: 18px;
     display: inline-block; text-align: center;
@@ -40,7 +24,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# URL fixa do GitHub Pages
 GITHUB_PAGES_URL = "https://duarte321.github.io/sistema-presenca-qrcode/leitor.html"
 
 @st.cache_resource
@@ -55,7 +38,7 @@ def obter_hora_atual():
 def _parse_date(s): return datetime.strptime(s, "%Y-%m-%d").date()
 def _parse_time(s): return datetime.strptime(s, "%H:%M").time()
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=30)
 def carregar_dados_participantes():
     try:
         res = supabase_client.table("participantes").select("*").execute()
@@ -220,6 +203,7 @@ defaults = {
     "lista_presenca": pd.DataFrame(columns=["ID","Nome","Cargo","Localidade","Horario"]),
     "ultimo_total": 0,
     "polling_ativo": False,
+    "poll_count": 0,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -240,6 +224,7 @@ with st.sidebar:
                 st.session_state.active_meeting_id = r["id"]
                 st.session_state.lista_presenca = carregar_presencas_reuniao(r["id"])
                 st.session_state.polling_ativo = True
+                st.session_state.poll_count = 0
                 st.rerun()
     st.divider()
     reuniao_selecionada_id = None
@@ -257,6 +242,7 @@ with st.sidebar:
             st.session_state.active_meeting_id = reuniao_selecionada_id
             st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_selecionada_id)
             st.session_state.polling_ativo = True
+            st.session_state.poll_count = 0
             st.rerun()
     st.divider()
     st.header("Criar / Editar")
@@ -321,24 +307,10 @@ if not reuniao_ativa:
     st.warning("Selecione uma reuniao no menu lateral e clique em Iniciar check-in.")
     st.stop()
 
-# --- Polling automatico a cada 5s ---
-if st.session_state.polling_ativo:
-    nova_lista = carregar_presencas_reuniao(reuniao_ativa["id"])
-    novo_total  = len(nova_lista)
-    if novo_total != st.session_state.ultimo_total:
-        st.session_state.lista_presenca = nova_lista
-        st.session_state.ultimo_total   = novo_total
-    time_module.sleep(5)
-    st.rerun()
-else:
-    if st.session_state.lista_presenca.empty:
-        st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_ativa["id"])
-
 # --- Cabecalho ---
 st.title(f"Check-in: {reuniao_ativa.get('nome')}")
 conv_df = filtrar_participantes_convocados(df_participantes, reuniao_ativa)
 cid2 = "ID" if "ID" in conv_df.columns else "id"
-ids_permitidos = set(conv_df[cid2].values.tolist()) if not conv_df.empty else set()
 
 total_conv = len(conv_df)
 total_pres = len(st.session_state.lista_presenca)
@@ -346,14 +318,13 @@ cc1,cc2,cc3,cc4 = st.columns(4)
 cc1.metric("Convocados", total_conv)
 cc2.metric("Presentes",  total_pres)
 cc3.metric("Faltantes",  max(0, total_conv - total_pres))
-cc4.metric("Atualizando", "5s" if st.session_state.polling_ativo else "Pausado")
+cc4.metric("Auto-refresh", "Ativo ✅" if st.session_state.polling_ativo else "Pausado ⏸")
 
 st.divider()
 
-# --- QR Code de Acesso para o Leitor ---
+# --- QR Code de Acesso ---
 supa_url = st.secrets.get("SUPABASE_URL", "")
 supa_key = st.secrets.get("SUPABASE_KEY", "")
-import urllib.parse
 nome_enc = urllib.parse.quote(reuniao_ativa.get("nome", ""))
 leitor_url = (
     f"{GITHUB_PAGES_URL}"
@@ -378,23 +349,24 @@ with col_info:
 
 **3.** Aponte para o QR Code do cracha do membro
 
-**4.** O registro aparece aqui em ate 5 segundos automaticamente
+**4.** O registro aparece aqui automaticamente
 """)
     if st.session_state.polling_ativo:
-        st.success("Monitoramento ativo - atualizando a cada 5s")
-        if st.button("Pausar monitoramento"):
+        st.success(f"Monitoramento ativo — ciclo #{st.session_state.poll_count}")
+        if st.button("⏸ Pausar monitoramento"):
             st.session_state.polling_ativo = False
             st.rerun()
     else:
         st.warning("Monitoramento pausado")
-        if st.button("Ativar monitoramento", type="primary"):
+        if st.button("▶ Ativar monitoramento", type="primary"):
             st.session_state.polling_ativo = True
+            st.session_state.poll_count = 0
             st.rerun()
     st.markdown(f"[Abrir leitor diretamente]({leitor_url})")
 
 st.divider()
 
-# --- Resultados ---
+# --- Lista de Presentes ---
 if not st.session_state.lista_presenca.empty:
     st.markdown("### Resumo")
     rc = st.session_state.lista_presenca["Cargo"].value_counts()
@@ -430,3 +402,17 @@ if not st.session_state.lista_presenca.empty:
                 st.rerun()
 else:
     st.info("Nenhuma presenca registrada ainda. Aguardando leituras...")
+
+# --- Polling NO FINAL (nao bloqueia renderizacao) ---
+# Executa DEPOIS de tudo renderizado, ai faz rerun para atualizar
+if st.session_state.polling_ativo:
+    import time as _t
+    st.session_state.poll_count += 1
+    _t.sleep(5)
+    # Recarrega presenças do Supabase
+    nova_lista = carregar_presencas_reuniao(reuniao_ativa["id"])
+    novo_total  = len(nova_lista)
+    if novo_total != st.session_state.ultimo_total:
+        st.session_state.lista_presenca = nova_lista
+        st.session_state.ultimo_total   = novo_total
+    st.rerun()
