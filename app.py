@@ -10,12 +10,8 @@ from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import json
-import os
+import time as time_module
 from supabase import create_client, Client
-try:
-    from streamlit_qrcode_scanner import qrcode_scanner
-except ImportError:
-    qrcode_scanner = None
 
 # --- Configuração da Página ---
 st.set_page_config(page_title="Check-in QR Code", layout="wide")
@@ -76,7 +72,7 @@ def carregar_presencas_reuniao(meeting_id):
         st.error(f"Erro ao carregar presenças: {e}")
         return pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
 
-def salvar_registro_presenca_csv(meeting_id, dados_participante):
+def salvar_registro_presenca(meeting_id, dados_participante):
     try:
         supabase_client.table("presencas").insert({
             "meeting_id": str(meeting_id),
@@ -90,7 +86,7 @@ def salvar_registro_presenca_csv(meeting_id, dados_participante):
     except Exception as e:
         st.error(f"Erro ao salvar presença: {e}")
 
-def limpar_presencas_reuniao_csv(meeting_id):
+def limpar_presencas_reuniao(meeting_id):
     try:
         supabase_client.table("presencas").delete().eq("meeting_id", str(meeting_id)).execute()
         return True
@@ -117,14 +113,8 @@ def carregar_reunioes():
         st.error(f"Erro ao carregar reuniões: {e}")
         return []
 
-def salvar_reunioes(reunioes):
-    pass  # Não necessário com Supabase (cada operação salva diretamente)
-
 def _gerar_id_reuniao():
     return obter_hora_atual().strftime("%Y%m%d%H%M%S%f")
-
-def migrar_legado_se_precisar(reunioes):
-    return reunioes  # Migração de legado não necessária com Supabase
 
 def excluir_reuniao(reunioes, reuniao_id):
     try:
@@ -150,19 +140,13 @@ def label_reuniao(r):
 # --- Convocação ---
 
 def filtrar_participantes_convocados(df, reuniao):
-    if df.empty:
+    if df.empty or not reuniao:
         return df
-    if not reuniao:
-        return df
-
     tipo = reuniao.get("filtro_tipo", "Todos")
     valores = reuniao.get("filtro_valores", [])
-
-    # Normaliza nomes de colunas (Supabase retorna minúsculas)
     col_cargo = "Cargo" if "Cargo" in df.columns else "cargo"
     col_local = "Localidade" if "Localidade" in df.columns else "localidade"
     col_nome = "Nome" if "Nome" in df.columns else "nome"
-
     if tipo == "Todos":
         return df
     if tipo == "Por Cargo":
@@ -173,20 +157,32 @@ def filtrar_participantes_convocados(df, reuniao):
         return df[df[col_nome].isin(valores)]
     return df
 
-# --- QR (foto fallback) ---
+# --- QR Code via imagem (OpenCV + pyzbar) ---
 
 def processar_qr_code_imagem(imagem):
-    bytes_data = imagem.getvalue()
-    cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
-    height, width = cv2_img.shape[:2]
-    if width > 1200:
-        scale = 1200 / width
-        cv2_img = cv2.resize(cv2_img, (1200, int(height * scale)), interpolation=cv2.INTER_AREA)
-    gray_img = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2GRAY)
-    decoded_objects = decode(gray_img)
-    if decoded_objects:
-        return decoded_objects[0].data.decode("utf-8").strip()
-    return None
+    try:
+        bytes_data = imagem.getvalue()
+        cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
+        if cv2_img is None:
+            return None
+        height, width = cv2_img.shape[:2]
+        if width > 1200:
+            scale = 1200 / width
+            cv2_img = cv2.resize(cv2_img, (1200, int(height * scale)), interpolation=cv2.INTER_AREA)
+        gray_img = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2GRAY)
+        # Tenta decodificar direto
+        decoded = decode(gray_img)
+        if decoded:
+            return decoded[0].data.decode("utf-8").strip()
+        # Segunda tentativa com threshold adaptativo (melhora leitura em luz ruim)
+        thresh = cv2.adaptiveThreshold(gray_img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                       cv2.THRESH_BINARY, 11, 2)
+        decoded = decode(thresh)
+        if decoded:
+            return decoded[0].data.decode("utf-8").strip()
+        return None
+    except Exception:
+        return None
 
 # --- Relatórios ---
 
@@ -198,16 +194,13 @@ def gerar_pdf(df_presenca, resumo_cargo, resumo_local, titulo_reuniao):
             self.set_font("Arial", "", 10)
             self.cell(0, 6, f"Gerado em: {obter_hora_atual().strftime('%d/%m/%Y %H:%M')}", 0, 1, "C")
             self.ln(4)
-
     pdf = PDF()
     pdf.add_page()
-
     def texto_pdf(texto):
         try:
             return str(texto).encode("latin-1", "replace").decode("latin-1")
         except Exception:
             return str(texto)
-
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, "RESUMO GERAL", ln=True)
     pdf.set_font("Arial", size=10)
@@ -305,7 +298,6 @@ def registrar_presenca(codigo_lido, df_participantes, ids_permitidos, meeting_id
     col_local = "Localidade" if "Localidade" in df_participantes.columns else "localidade"
 
     participante = df_participantes[df_participantes[col_id] == codigo_lido]
-
     if participante.empty:
         st.error(f"❌ Código '{codigo_lido}' não encontrado no banco.")
         return False
@@ -329,14 +321,11 @@ def registrar_presenca(codigo_lido, df_participantes, ids_permitidos, meeting_id
         "Localidade": participante.iloc[0][col_local],
         "Horario": hora_registro,
     }
-
-    salvar_registro_presenca_csv(meeting_id, novo_registro)
-
+    salvar_registro_presenca(meeting_id, novo_registro)
     st.session_state.lista_presenca = pd.concat(
         [st.session_state.lista_presenca, pd.DataFrame([novo_registro])],
         ignore_index=True,
     )
-
     st.toast(f"✅ {nome} registrado com sucesso!", icon="✅")
     return True
 
@@ -345,37 +334,31 @@ def registrar_presenca(codigo_lido, df_participantes, ids_permitidos, meeting_id
 # ==========================
 
 df_participantes = carregar_dados_participantes()
-
-# Normaliza colunas para maiúsculas (compatibilidade)
 if not df_participantes.empty:
-    col_map = {c: c.capitalize() for c in df_participantes.columns}
-    col_map.update({"id": "ID", "nome": "Nome", "cargo": "Cargo", "localidade": "Localidade"})
+    col_map = {"id": "ID", "nome": "Nome", "cargo": "Cargo", "localidade": "Localidade"}
     df_participantes = df_participantes.rename(columns=col_map)
 
-reunioes = migrar_legado_se_precisar(carregar_reunioes())
+reunioes = carregar_reunioes()
 
 if "active_meeting_id" not in st.session_state:
     st.session_state.active_meeting_id = None
-
 if "lista_presenca" not in st.session_state:
     st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
-
 if "camera_key" not in st.session_state:
     st.session_state.camera_key = 0
+# Debounce: guarda o último código lido e o timestamp
+if "ultimo_codigo_lido" not in st.session_state:
+    st.session_state.ultimo_codigo_lido = None
+if "ultimo_lido_ts" not in st.session_state:
+    st.session_state.ultimo_lido_ts = 0.0
 
 hoje = date.today().strftime("%Y-%m-%d")
 
 # --- Sidebar: Agenda ---
 with st.sidebar:
     st.header("📅 Agenda de Reuniões")
-
     mostrar_passadas = st.checkbox("Mostrar passadas", value=False)
-
-    reunioes_visiveis = []
-    for r in reunioes:
-        d = r.get("data", "")
-        if mostrar_passadas or d >= hoje:
-            reunioes_visiveis.append(r)
+    reunioes_visiveis = [r for r in reunioes if mostrar_passadas or r.get("data", "") >= hoje]
 
     reunioes_hoje = [r for r in reunioes if r.get("data") == hoje]
     if reunioes_hoje:
@@ -388,36 +371,25 @@ with st.sidebar:
 
     st.divider()
 
+    reuniao_selecionada_id = None
     if reunioes_visiveis:
         labels = [label_reuniao(r) for r in reunioes_visiveis]
         ids = [r["id"] for r in reunioes_visiveis]
-
-        if st.session_state.active_meeting_id in ids:
-            default_index = ids.index(st.session_state.active_meeting_id)
-        else:
-            default_index = 0
-
+        default_index = ids.index(st.session_state.active_meeting_id) if st.session_state.active_meeting_id in ids else 0
         sel_index = st.selectbox("Selecionar reunião", range(len(ids)), format_func=lambda i: labels[i], index=default_index)
         reuniao_selecionada_id = ids[sel_index]
     else:
         st.info("Nenhuma reunião agendada ainda.")
-        reuniao_selecionada_id = None
 
     if reuniao_selecionada_id:
-        label_btn = "▶️ Iniciar check-in"
-        if st.session_state.active_meeting_id == reuniao_selecionada_id:
-            label_btn = "🔄 Recarregar Check-in"
-
+        label_btn = "🔄 Recarregar Check-in" if st.session_state.active_meeting_id == reuniao_selecionada_id else "▶️ Iniciar check-in"
         if st.button(label_btn, type="primary"):
             st.session_state.active_meeting_id = reuniao_selecionada_id
             st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_selecionada_id)
             st.rerun()
 
     st.divider()
-
-    # --- Sidebar: Criar/Editar ---
     st.header("🛠️ Criar / Editar")
-
     modo = st.radio("Modo", ["Criar nova", "Editar selecionada"], index=1 if reuniao_selecionada_id else 0)
 
     reuniao_atual_edicao = None
@@ -437,26 +409,23 @@ with st.sidebar:
         nome_input = st.text_input("Nome", value=nome_def, placeholder="Ex: Ensaio Regional")
         data_input = st.date_input("Data", value=data_def)
         hora_input = st.time_input("Horário", value=hora_def)
-
         st.markdown("**Convocação**")
         opcoes_radio = ["Todos", "Por Cargo", "Por Localidade", "Manual"]
         idx = opcoes_radio.index(filtro_def) if filtro_def in opcoes_radio else 0
         filtro_tipo = st.radio("Tipo", opcoes_radio, index=idx)
-
         valores = []
         if filtro_tipo == "Por Cargo" and not df_participantes.empty:
-            col_cargo = "Cargo" if "Cargo" in df_participantes.columns else "cargo"
-            opcoes = sorted(df_participantes[col_cargo].unique().tolist())
+            col_c = "Cargo" if "Cargo" in df_participantes.columns else "cargo"
+            opcoes = sorted(df_participantes[col_c].unique().tolist())
             valores = st.multiselect("Cargos", opcoes, default=[v for v in valores_def if v in opcoes])
         elif filtro_tipo == "Por Localidade" and not df_participantes.empty:
-            col_local = "Localidade" if "Localidade" in df_participantes.columns else "localidade"
-            opcoes = sorted(df_participantes[col_local].unique().tolist())
+            col_l = "Localidade" if "Localidade" in df_participantes.columns else "localidade"
+            opcoes = sorted(df_participantes[col_l].unique().tolist())
             valores = st.multiselect("Localidades", opcoes, default=[v for v in valores_def if v in opcoes])
         elif filtro_tipo == "Manual" and not df_participantes.empty:
-            col_nome = "Nome" if "Nome" in df_participantes.columns else "nome"
-            opcoes = sorted(df_participantes[col_nome].unique().tolist())
+            col_n = "Nome" if "Nome" in df_participantes.columns else "nome"
+            opcoes = sorted(df_participantes[col_n].unique().tolist())
             valores = st.multiselect("Nomes", opcoes, default=[v for v in valores_def if v in opcoes])
-
         salvar = st.form_submit_button("💾 Salvar")
 
     if salvar:
@@ -482,7 +451,6 @@ with st.sidebar:
             reunioes = excluir_reuniao(reunioes, reuniao_atual_edicao["id"])
             if st.session_state.active_meeting_id == reuniao_atual_edicao["id"]:
                 st.session_state.active_meeting_id = None
-                st.rerun()
             st.success("Reunião excluída!")
             st.rerun()
 
@@ -493,11 +461,9 @@ if st.session_state.active_meeting_id:
         if r.get("id") == st.session_state.active_meeting_id:
             reuniao_ativa = r
             break
-
     if not reuniao_ativa:
         st.session_state.active_meeting_id = None
         st.rerun()
-
     if st.session_state.lista_presenca.empty:
         st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_ativa["id"])
 
@@ -510,34 +476,38 @@ if not reuniao_ativa:
 st.title(f"📲 {reuniao_ativa.get('nome')}")
 
 convocados_df = filtrar_participantes_convocados(df_participantes, reuniao_ativa)
-col_id = "ID" if "ID" in convocados_df.columns else "id"
-ids_permitidos = set(convocados_df[col_id].values.tolist()) if not convocados_df.empty else set()
+col_id_conv = "ID" if "ID" in convocados_df.columns else "id"
+ids_permitidos = set(convocados_df[col_id_conv].values.tolist()) if not convocados_df.empty else set()
 
-tab_auto, tab_manual = st.tabs(["⚡ Leitura Automática", "📷 Câmera Manual / Foto"])
+# -------------------------------------------------------
+# CÂMERA ÚNICA — funciona em Android, iOS e Desktop
+# Tira foto e processa QR automaticamente via OpenCV
+# -------------------------------------------------------
+st.markdown("### 📷 Aponte a câmera para o QR Code e tire a foto")
+st.caption("Funciona em celular (Android/iOS) e computador. Após a foto, o registro é automático.")
 
-with tab_auto:
-    st.markdown("Aponte a câmera para ler automaticamente.")
-    if qrcode_scanner:
-        qr_code_auto = qrcode_scanner(key="scanner_auto")
-        if qr_code_auto:
-            if registrar_presenca(qr_code_auto, df_participantes, ids_permitidos, reuniao_ativa["id"]):
-                st.rerun()
-    else:
-        st.error("Componente de scanner automático não instalado corretamente.")
+camera_key = f"camera_{st.session_state.camera_key}"
+img = st.camera_input("📸 Tirar foto do QR Code", key=camera_key)
 
-with tab_manual:
-    st.markdown("Recomendado para celulares (Android/iOS) - Compatibilidade Total")
-    key_camera = f"camera_{st.session_state.camera_key}"
-    img = st.camera_input("📷 Tirar Foto", key=key_camera)
-    if img:
-        codigo = processar_qr_code_imagem(img)
-        if codigo:
+if img:
+    codigo = processar_qr_code_imagem(img)
+    if codigo:
+        agora = time_module.time()
+        # Debounce: ignora se o mesmo código foi lido nos últimos 3 segundos
+        mesmo_codigo = (codigo == st.session_state.ultimo_codigo_lido)
+        dentro_do_cooldown = (agora - st.session_state.ultimo_lido_ts) < 3.0
+        if mesmo_codigo and dentro_do_cooldown:
+            st.info(f"⏳ Aguarde para registrar novamente.")
+        else:
+            st.session_state.ultimo_codigo_lido = codigo
+            st.session_state.ultimo_lido_ts = agora
             sucesso = registrar_presenca(codigo, df_participantes, ids_permitidos, reuniao_ativa["id"])
             if sucesso:
+                # Reseta câmera para nova leitura
                 st.session_state.camera_key += 1
                 st.rerun()
-        else:
-            st.error("QR Code não detectado na imagem. Tente aproximar ou melhorar a luz.")
+    else:
+        st.warning("⚠️ QR Code não detectado. Tente melhorar a iluminação ou aproximar mais.")
 
 # --- Área de Resultados ---
 if not st.session_state.lista_presenca.empty:
@@ -570,6 +540,6 @@ if not st.session_state.lista_presenca.empty:
             st.download_button("Baixar Excel", data=excel_data, file_name=f"{nome_arquivo}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     with colC:
         if st.button("🗑️ Limpar"):
-            if limpar_presencas_reuniao_csv(reuniao_ativa["id"]):
+            if limpar_presencas_reuniao(reuniao_ativa["id"]):
                 st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
                 st.rerun()

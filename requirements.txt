@@ -6,5 +6,4 @@ numpy
 pyzbar
 pytz
 openpyxl
-streamlit-qrcode-scanner
 supabase
