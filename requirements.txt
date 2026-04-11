@@ -1,9 +1,8 @@
 streamlit
+supabase
 pandas
 fpdf2
-opencv-python-headless
-numpy
-pyzbar
-pytz
 openpyxl
-supabase
+pytz
+qrcode[pil]
+Pillow

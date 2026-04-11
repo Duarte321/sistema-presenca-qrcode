@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Check-in QR Code</title>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body {
+  height:100%; background:#0f0f0f;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: white;
+  overflow: hidden;
+}
+#topo {
+  background: linear-gradient(135deg, #1a1a2e, #16213e);
+  padding: 14px 16px 10px;
+  text-align: center;
+  border-bottom: 2px solid #00d4aa;
+}
+#topo h1 { font-size: 1.1rem; color: #00d4aa; letter-spacing: 1px; }
+#topo p  { font-size: 0.75rem; color: #aaa; margin-top: 2px; }
+#cam-wrap {
+  position: relative;
+  width: 100%;
+  max-height: calc(100vh - 180px);
+  overflow: hidden;
+  background: #000;
+}
+video {
+  width: 100%;
+  display: block;
+  max-height: calc(100vh - 180px);
+  object-fit: cover;
+}
+canvas { display: none; }
+#mira {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 200px; height: 200px;
+  border: 3px solid #00d4aa;
+  border-radius: 18px;
+  box-shadow: 0 0 0 4000px rgba(0,0,0,0.5);
+  pointer-events: none;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%,100% { border-color: #00d4aa; box-shadow: 0 0 0 4000px rgba(0,0,0,0.5), 0 0 12px #00d4aa; }
+  50%      { border-color: #00ffcc; box-shadow: 0 0 0 4000px rgba(0,0,0,0.5), 0 0 24px #00ffcc; }
+}
+#status-bar {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  padding: 14px 20px;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: bold;
+  background: #222;
+  border-top: 1px solid #333;
+  transition: background 0.3s, color 0.3s;
+  min-height: 70px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 4px;
+}
+#status-bar.aguardando { background: #1a1a2e; color: #aaa; }
+#status-bar.lendo      { background: #1a3a2e; color: #00d4aa; }
+#status-bar.ok         { background: linear-gradient(135deg, #1a7a4a, #25a060); color: white; }
+#status-bar.duplicado  { background: linear-gradient(135deg, #7a6a00, #c9960c); color: white; }
+#status-bar.erro       { background: linear-gradient(135deg, #7a1a1a, #c0392b); color: white; }
+#nome-reg { font-size: 1.2rem; font-weight: bold; }
+#sub-reg  { font-size: 0.8rem; opacity: 0.85; }
+#reuniao-nome {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  background: rgba(0,212,170,0.15);
+  color: #00d4aa;
+  font-size: 0.75rem;
+  text-align: center;
+  padding: 4px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+}
+</style>
+</head>
+<body>
+
+<div id="topo">
+  <h1>CHECK-IN MUSICAL</h1>
+  <p id="topo-reuniao">Carregando...</p>
+</div>
+
+<div id="cam-wrap">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="mira"></div>
+</div>
+
+<div id="status-bar" class="aguardando">
+  <div id="nome-reg">Aponte para o QR Code do cracha</div>
+  <div id="sub-reg">Camera pronta</div>
+</div>
+
+<script>
+// ============================================================
+// CONFIGURACAO - preenchida pelo app.py ao gerar o link
+// ============================================================
+var params     = new URLSearchParams(window.location.search);
+var SUPA_URL   = params.get('u') || '';
+var SUPA_KEY   = params.get('k') || '';
+var MEETING_ID = params.get('m') || '';
+var REUNIAO_NM = decodeURIComponent(params.get('n') || 'Reuniao');
+
+document.getElementById('topo-reuniao').textContent = REUNIAO_NM;
+
+if (!SUPA_URL || !SUPA_KEY || !MEETING_ID) {
+  document.getElementById('nome-reg').textContent = 'Link invalido!';
+  document.getElementById('sub-reg').textContent  = 'Faltam parametros. Use o link gerado pelo painel.';
+  document.getElementById('status-bar').className = 'erro';
+  throw new Error('Parametros ausentes');
+}
+
+// ============================================================
+// CAMERA
+// ============================================================
+var video    = document.getElementById('video');
+var canvas   = document.getElementById('canvas');
+var ctx      = canvas.getContext('2d');
+var statusEl = document.getElementById('status-bar');
+var nomeEl   = document.getElementById('nome-reg');
+var subEl    = document.getElementById('sub-reg');
+
+var scanning  = true;
+var lastCode  = '';
+var lastTime  = 0;
+var COOLDOWN  = 4000;
+
+navigator.mediaDevices.getUserMedia({
+  video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }
+}).then(function(stream) {
+  video.srcObject = stream;
+  video.play();
+  requestAnimationFrame(scan);
+}).catch(function(err) {
+  nomeEl.textContent = 'Permita o acesso a camera!';
+  subEl.textContent  = 'Erro: ' + err.name;
+  statusEl.className = 'erro';
+});
+
+function scan() {
+  if (!scanning || video.readyState !== video.HAVE_ENOUGH_DATA) {
+    requestAnimationFrame(scan); return;
+  }
+  canvas.width  = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  var img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  var code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+
+  if (code && code.data) {
+    var now = Date.now();
+    if (code.data === lastCode && (now - lastTime) < COOLDOWN) {
+      requestAnimationFrame(scan); return;
+    }
+    lastCode = code.data;
+    lastTime = now;
+    scanning = false;
+    nomeEl.textContent = 'Lido: ' + code.data;
+    subEl.textContent  = 'Registrando...';
+    statusEl.className = 'lendo';
+    registrar(code.data);
+  }
+  requestAnimationFrame(scan);
+}
+
+// ============================================================
+// REGISTRAR NO SUPABASE (REST API direto)
+// ============================================================
+function registrar(codigo) {
+  var agora = new Date();
+  var horario = agora.toTimeString().slice(0,8);
+  var data_reg = agora.toISOString();
+
+  // 1) Busca o participante pelo ID
+  fetch(SUPA_URL + '/rest/v1/participantes?id=eq.' + encodeURIComponent(codigo) + '&select=id,nome,cargo,localidade', {
+    headers: {
+      'apikey': SUPA_KEY,
+      'Authorization': 'Bearer ' + SUPA_KEY
+    }
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (!data || data.length === 0) {
+      mostrarFeedback('erro', codigo, 'Codigo nao encontrado na base!');
+      return;
+    }
+    var p = data[0];
+
+    // 2) Verifica se ja foi registrado nessa reuniao
+    fetch(SUPA_URL + '/rest/v1/presencas?meeting_id=eq.' + encodeURIComponent(MEETING_ID)
+          + '&id_participante=eq.' + encodeURIComponent(codigo) + '&select=id', {
+      headers: {
+        'apikey': SUPA_KEY,
+        'Authorization': 'Bearer ' + SUPA_KEY
+      }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(exist) {
+      if (exist && exist.length > 0) {
+        mostrarFeedback('duplicado', p.nome, 'Presenca ja registrada!');
+        return;
+      }
+
+      // 3) Insere a presenca
+      fetch(SUPA_URL + '/rest/v1/presencas', {
+        method: 'POST',
+        headers: {
+          'apikey': SUPA_KEY,
+          'Authorization': 'Bearer ' + SUPA_KEY,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify({
+          meeting_id: MEETING_ID,
+          id_participante: codigo,
+          nome: p.nome,
+          cargo: p.cargo,
+          localidade: p.localidade,
+          horario: horario,
+          data_registro: data_reg
+        })
+      })
+      .then(function(r) {
+        if (r.ok) {
+          mostrarFeedback('ok', p.nome, p.cargo + ' - ' + p.localidade);
+        } else {
+          r.text().then(function(t) {
+            mostrarFeedback('erro', 'Falha ao salvar', t.slice(0,80));
+          });
+        }
+      })
+      .catch(function(e) { mostrarFeedback('erro', 'Erro de rede', e.message); });
+    })
+    .catch(function(e) { mostrarFeedback('erro', 'Erro ao verificar duplicata', e.message); });
+  })
+  .catch(function(e) { mostrarFeedback('erro', 'Erro ao buscar participante', e.message); });
+}
+
+function mostrarFeedback(tipo, titulo, sub) {
+  nomeEl.textContent = tipo === 'ok' ? 'Registrado: ' + titulo
+                     : tipo === 'duplicado' ? 'Ja presente: ' + titulo
+                     : 'Erro: ' + titulo;
+  subEl.textContent  = sub || '';
+  statusEl.className = tipo;
+  setTimeout(function() {
+    nomeEl.textContent = 'Aponte para o proximo QR Code';
+    subEl.textContent  = 'Camera pronta';
+    statusEl.className = 'aguardando';
+    scanning = true;
+  }, tipo === 'ok' ? 2500 : 3500);
+}
+</script>
+</body>
+</html>
