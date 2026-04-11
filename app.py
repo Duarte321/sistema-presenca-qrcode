@@ -16,7 +16,7 @@ st.set_page_config(
     page_title="CCB Musical — Check-in",
     page_icon="🎵",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # ═════════════════════ CSS GLOBAL ═════════════════════
@@ -38,279 +38,224 @@ st.markdown("""
     color: #c7d2fe !important;
     border-radius: 10px !important;
     font-weight: 600 !important;
-    transition: all 0.2s ease !important;
-}
-[data-testid="stSidebar"] .stButton > button:hover {
-    background: rgba(99,102,241,0.35) !important;
-    transform: translateX(3px) !important;
-}
-[data-testid="stSidebar"] .stButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
-    border: none !important; color: white !important;
 }
 
-/* ===== BANNER HEADER ===== */
+/* ===== BANNER ===== */
 .banner {
     background: linear-gradient(135deg, #1e1b4b 0%, #312e81 40%, #4c1d95 100%);
     border: 1px solid rgba(139,92,246,0.4);
     border-radius: 20px;
-    padding: 28px 36px;
-    margin-bottom: 24px;
+    padding: 22px 28px;
+    margin-bottom: 20px;
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: 18px;
     box-shadow: 0 8px 32px rgba(99,102,241,0.3);
 }
-.banner-icon { font-size: 3rem; }
-.banner-title {
-    color: #ffffff;
-    font-size: 1.9rem;
-    font-weight: 800;
-    margin: 0;
-    letter-spacing: -0.5px;
-    text-shadow: 0 2px 8px rgba(0,0,0,0.5);
-}
-.banner-sub {
-    color: #a5b4fc;
-    font-size: 0.95rem;
-    margin: 4px 0 0 0;
-}
+.banner-icon { font-size: 2.6rem; }
+.banner-title { color:#fff; font-size:1.7rem; font-weight:800; margin:0; }
+.banner-sub   { color:#a5b4fc; font-size:0.9rem; margin:4px 0 0; }
 
 /* ===== METRIC CARDS ===== */
-.metric-row { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+.metric-row { display:flex; gap:14px; margin-bottom:18px; flex-wrap:wrap; }
 .metric-card {
-    flex: 1; min-width: 130px;
+    flex:1; min-width:120px;
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.1);
-    backdrop-filter: blur(12px);
-    border-radius: 16px;
-    padding: 20px 16px;
-    text-align: center;
+    border-radius:16px; padding:18px 14px;
+    text-align:center;
     transition: transform 0.2s, box-shadow 0.2s;
 }
-.metric-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
-.metric-value { font-size: 2.4rem; font-weight: 800; margin: 0; line-height: 1; }
-.metric-label { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 1px; margin-top: 6px; opacity: 0.7; }
-.mc-blue  .metric-value { color: #60a5fa; }
-.mc-green .metric-value { color: #34d399; }
-.mc-red   .metric-value { color: #f87171; }
-.mc-purple .metric-value { color: #a78bfa; }
-.mc-purple { border-color: rgba(167,139,250,0.3) !important; }
-.mc-blue   { border-color: rgba(96,165,250,0.3) !important; }
-.mc-green  { border-color: rgba(52,211,153,0.3) !important; }
-.mc-red    { border-color: rgba(248,113,113,0.3) !important; }
+.metric-card:hover { transform:translateY(-3px); box-shadow:0 8px 24px rgba(0,0,0,0.3); }
+.metric-value { font-size:2.2rem; font-weight:800; margin:0; line-height:1; }
+.metric-label { font-size:0.76rem; text-transform:uppercase; letter-spacing:1px; margin-top:5px; opacity:0.7; }
+.mc-blue   .metric-value { color:#60a5fa; }
+.mc-green  .metric-value { color:#34d399; }
+.mc-red    .metric-value { color:#f87171; }
+.mc-purple .metric-value { color:#a78bfa; }
+.mc-purple { border-color:rgba(167,139,250,0.3) !important; }
+.mc-blue   { border-color:rgba(96,165,250,0.3)  !important; }
+.mc-green  { border-color:rgba(52,211,153,0.3)  !important; }
+.mc-red    { border-color:rgba(248,113,113,0.3) !important; }
 
-/* ===== PROGRESS BAR ===== */
+/* ===== PROGRESS ===== */
 .prog-wrap {
-    background: rgba(255,255,255,0.08);
-    border-radius: 99px; height: 10px;
-    margin: 0 0 28px 0; overflow: hidden;
-    box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+    background:rgba(255,255,255,0.08);
+    border-radius:99px; height:10px;
+    margin:0 0 26px; overflow:hidden;
+    box-shadow:inset 0 2px 4px rgba(0,0,0,0.3);
 }
 .prog-fill {
-    height: 100%; border-radius: 99px;
-    background: linear-gradient(90deg, #6366f1, #8b5cf6, #06b6d4);
-    transition: width 0.6s ease;
-    box-shadow: 0 0 12px rgba(99,102,241,0.6);
+    height:100%; border-radius:99px;
+    background:linear-gradient(90deg,#6366f1,#8b5cf6,#06b6d4);
+    transition:width 0.6s ease;
+    box-shadow:0 0 12px rgba(99,102,241,0.6);
 }
 
-/* ===== FEEDBACK CARDS ===== */
+/* ===== FEEDBACK ===== */
 .fb-ok {
-    background: linear-gradient(135deg, #064e3b, #065f46);
-    border: 1px solid #34d399;
-    border-radius: 18px; padding: 22px 28px;
-    text-align: center; margin: 12px 0;
-    box-shadow: 0 0 24px rgba(52,211,153,0.25);
-    animation: bounceIn 0.4s ease;
+    background:linear-gradient(135deg,#064e3b,#065f46);
+    border:1px solid #34d399; border-radius:18px;
+    padding:22px 28px; text-align:center; margin:12px 0;
+    box-shadow:0 0 24px rgba(52,211,153,0.25);
+    animation:bounceIn 0.4s ease;
 }
-.fb-ok .fb-title { color: #6ee7b7; font-size: 1.1rem; font-weight: 600; }
-.fb-ok .fb-nome  { color: #ffffff;  font-size: 1.5rem; font-weight: 800; margin: 4px 0; }
-.fb-warn {
-    background: linear-gradient(135deg, #451a03, #78350f);
-    border: 1px solid #f59e0b;
-    border-radius: 18px; padding: 18px 24px;
-    text-align: center; margin: 12px 0;
-    box-shadow: 0 0 20px rgba(245,158,11,0.2);
-}
-.fb-warn .fb-title { color: #fcd34d; font-size: 1rem; font-weight: 700; }
-.fb-erro {
-    background: linear-gradient(135deg, #450a0a, #7f1d1d);
-    border: 1px solid #f87171;
-    border-radius: 18px; padding: 18px 24px;
-    text-align: center; margin: 12px 0;
-}
-.fb-erro .fb-title { color: #fca5a5; font-size: 1rem; font-weight: 700; }
-.fb-idle {
-    background: rgba(99,102,241,0.08);
-    border: 1px dashed rgba(99,102,241,0.4);
-    border-radius: 18px; padding: 18px 24px;
-    text-align: center; margin: 12px 0;
-}
-.fb-idle .fb-title { color: #a5b4fc; font-size: 0.95rem; }
+.fb-ok .fb-title { color:#6ee7b7; font-size:1.1rem; font-weight:600; }
+.fb-ok .fb-nome  { color:#fff;    font-size:1.5rem; font-weight:800; margin:4px 0; }
+.fb-warn { background:linear-gradient(135deg,#451a03,#78350f); border:1px solid #f59e0b; border-radius:18px; padding:18px 24px; text-align:center; margin:12px 0; }
+.fb-warn .fb-title { color:#fcd34d; font-size:1rem; font-weight:700; }
+.fb-erro { background:linear-gradient(135deg,#450a0a,#7f1d1d); border:1px solid #f87171; border-radius:18px; padding:18px 24px; text-align:center; margin:12px 0; }
+.fb-erro .fb-title { color:#fca5a5; font-size:1rem; font-weight:700; }
+.fb-idle { background:rgba(99,102,241,0.08); border:1px dashed rgba(99,102,241,0.4); border-radius:18px; padding:18px 24px; text-align:center; margin:12px 0; }
+.fb-idle .fb-title { color:#a5b4fc; font-size:0.95rem; }
 
 /* ===== MEMBRO CARD ===== */
 .membro-card {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(99,102,241,0.3);
-    border-left: 4px solid #6366f1;
-    border-radius: 12px; padding: 14px 18px;
-    margin: 10px 0;
+    background:rgba(255,255,255,0.05);
+    border:1px solid rgba(99,102,241,0.3);
+    border-left:4px solid #6366f1;
+    border-radius:12px; padding:14px 18px; margin:10px 0;
 }
-.membro-card .m-nome { color: #e2e8f0; font-size: 1rem; font-weight: 700; }
-.membro-card .m-det  { color: #94a3b8; font-size: 0.85rem; margin-top: 4px; }
+.membro-card .m-nome { color:#e2e8f0; font-size:1rem; font-weight:700; }
+.membro-card .m-det  { color:#94a3b8; font-size:0.85rem; margin-top:4px; }
 
-/* ===== REUNIAO CARD (tela inicial) ===== */
+/* ===== REUNIAO CARD ===== */
 .reuniao-card {
-    background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(139,92,246,0.08));
-    border: 1px solid rgba(99,102,241,0.35);
-    border-radius: 20px;
-    padding: 28px 32px;
-    margin: 12px 0;
-    transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
-    cursor: pointer;
+    background:linear-gradient(135deg,rgba(99,102,241,0.12),rgba(139,92,246,0.08));
+    border:1px solid rgba(99,102,241,0.35);
+    border-radius:20px; padding:26px 28px; margin:12px 0;
+    transition:transform 0.2s, box-shadow 0.2s, border-color 0.2s;
 }
-.reuniao-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 12px 36px rgba(99,102,241,0.25);
-    border-color: rgba(139,92,246,0.6);
-}
-.reuniao-card .rc-hora {
-    color: #a5b4fc;
-    font-size: 1rem;
-    font-weight: 600;
-    margin: 0 0 6px 0;
-    letter-spacing: 1px;
-}
-.reuniao-card .rc-nome {
-    color: #ffffff;
-    font-size: 1.5rem;
-    font-weight: 800;
-    margin: 0 0 10px 0;
-}
-.reuniao-card .rc-data {
-    color: #64748b;
-    font-size: 0.85rem;
-}
+.reuniao-card:hover { transform:translateY(-4px); box-shadow:0 12px 36px rgba(99,102,241,0.25); border-color:rgba(139,92,246,0.6); }
+.reuniao-card .rc-hora { color:#a5b4fc; font-size:1rem; font-weight:600; margin:0 0 6px; letter-spacing:1px; }
+.reuniao-card .rc-nome { color:#fff;    font-size:1.45rem; font-weight:800; margin:0 0 10px; }
+.reuniao-card .rc-data { color:#64748b; font-size:0.85rem; }
 .reuniao-hoje-badge {
-    display: inline-block;
-    background: linear-gradient(90deg,#22c55e,#16a34a);
-    color: white;
-    font-size: 0.7rem;
+    display:inline-block;
+    background:linear-gradient(90deg,#22c55e,#16a34a);
+    color:white; font-size:0.68rem; font-weight:700;
+    letter-spacing:1px; padding:2px 10px; border-radius:99px;
+    margin-left:8px; vertical-align:middle;
+}
+
+/* ===== BOTAO VOLTAR ===== */
+.btn-voltar-wrap { margin-bottom:18px; }
+.btn-nav-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 14px;
+    margin: 18px 0;
+}
+.btn-nav-item {
+    background: rgba(99,102,241,0.12);
+    border: 1.5px solid rgba(99,102,241,0.4);
+    border-radius: 16px;
+    padding: 22px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: #c7d2fe;
     font-weight: 700;
-    letter-spacing: 1px;
-    padding: 2px 10px;
-    border-radius: 99px;
-    margin-left: 10px;
-    vertical-align: middle;
+    font-size: 1rem;
+}
+.btn-nav-item:hover {
+    background: rgba(99,102,241,0.25);
+    border-color: rgba(139,92,246,0.7);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(99,102,241,0.3);
+}
+.btn-nav-item .nav-icon { font-size: 2rem; margin-bottom: 8px; }
+.btn-nav-item .nav-label { font-size: 0.9rem; letter-spacing: 0.5px; }
+
+/* ===== FORMULARIO REUNIAO ===== */
+.form-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(99,102,241,0.3);
+    border-radius: 18px;
+    padding: 24px 28px;
+    margin-bottom: 20px;
 }
 
 /* ===== CAMERA ===== */
 [data-testid="stCameraInput"] > div {
-    border-radius: 18px !important;
-    overflow: hidden !important;
-    border: 2px solid rgba(99,102,241,0.5) !important;
-    box-shadow: 0 0 20px rgba(99,102,241,0.2) !important;
+    border-radius:18px !important; overflow:hidden !important;
+    border:2px solid rgba(99,102,241,0.5) !important;
+    box-shadow:0 0 20px rgba(99,102,241,0.2) !important;
 }
 
 /* ===== TABS ===== */
 [data-testid="stTabs"] [role="tab"] {
-    background: rgba(255,255,255,0.04) !important;
-    border-radius: 10px 10px 0 0 !important;
-    color: #94a3b8 !important;
-    font-weight: 600 !important;
-    padding: 10px 22px !important;
-    border: 1px solid rgba(255,255,255,0.08) !important;
-    border-bottom: none !important;
+    background:rgba(255,255,255,0.04) !important;
+    border-radius:10px 10px 0 0 !important;
+    color:#94a3b8 !important; font-weight:600 !important;
+    padding:10px 22px !important;
+    border:1px solid rgba(255,255,255,0.08) !important;
+    border-bottom:none !important;
 }
 [data-testid="stTabs"] [role="tab"][aria-selected="true"] {
-    background: linear-gradient(135deg,rgba(99,102,241,0.25),rgba(139,92,246,0.2)) !important;
-    color: #c7d2fe !important;
-    border-color: rgba(99,102,241,0.5) !important;
+    background:linear-gradient(135deg,rgba(99,102,241,0.25),rgba(139,92,246,0.2)) !important;
+    color:#c7d2fe !important; border-color:rgba(99,102,241,0.5) !important;
 }
 
 /* ===== DATAFRAME ===== */
-[data-testid="stDataFrame"] {
-    border-radius: 12px !important;
-    overflow: hidden !important;
-    border: 1px solid rgba(255,255,255,0.08) !important;
-}
+[data-testid="stDataFrame"] { border-radius:12px !important; overflow:hidden !important; border:1px solid rgba(255,255,255,0.08) !important; }
 
 /* ===== SECTION HEADER ===== */
 .sec-header {
-    color: #c7d2fe;
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    margin: 18px 0 10px 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
+    color:#c7d2fe; font-size:0.75rem; font-weight:700;
+    text-transform:uppercase; letter-spacing:2px;
+    margin:18px 0 10px; display:flex; align-items:center; gap:8px;
 }
-.sec-header::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: rgba(99,102,241,0.3);
-}
+.sec-header::after { content:''; flex:1; height:1px; background:rgba(99,102,241,0.3); }
 
-/* ===== BOTOES PRINCIPAIS ===== */
+/* ===== BOTOES ===== */
 .stButton > button {
-    border-radius: 12px !important;
-    font-weight: 600 !important;
-    transition: all 0.2s !important;
+    border-radius:12px !important; font-weight:600 !important; transition:all 0.2s !important;
 }
 .stButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
-    border: none !important;
-    box-shadow: 0 4px 14px rgba(99,102,241,0.4) !important;
-    color: white !important;
+    background:linear-gradient(135deg,#6366f1,#8b5cf6) !important;
+    border:none !important;
+    box-shadow:0 4px 14px rgba(99,102,241,0.4) !important;
+    color:white !important;
 }
 .stButton > button[kind="primary"]:hover {
-    transform: translateY(-2px) !important;
-    box-shadow: 0 6px 20px rgba(99,102,241,0.55) !important;
+    transform:translateY(-2px) !important;
+    box-shadow:0 6px 20px rgba(99,102,241,0.55) !important;
 }
 
 /* ===== INPUT ===== */
 .stTextInput input {
-    background: rgba(255,255,255,0.06) !important;
-    border: 1px solid rgba(99,102,241,0.35) !important;
-    border-radius: 10px !important;
-    color: #e2e8f0 !important;
+    background:rgba(255,255,255,0.06) !important;
+    border:1px solid rgba(99,102,241,0.35) !important;
+    border-radius:10px !important; color:#e2e8f0 !important;
 }
 .stTextInput input:focus {
-    border-color: #6366f1 !important;
-    box-shadow: 0 0 0 3px rgba(99,102,241,0.2) !important;
+    border-color:#6366f1 !important;
+    box-shadow:0 0 0 3px rgba(99,102,241,0.2) !important;
 }
 
 /* ===== SCROLLBAR ===== */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
-::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.4); border-radius: 99px; }
+::-webkit-scrollbar { width:6px; height:6px; }
+::-webkit-scrollbar-track { background:rgba(255,255,255,0.03); }
+::-webkit-scrollbar-thumb { background:rgba(99,102,241,0.4); border-radius:99px; }
 
-/* ===== ANIMATION ===== */
+/* ===== ANIMATIONS ===== */
 @keyframes bounceIn {
-    0%   { transform: scale(0.9); opacity: 0; }
-    60%  { transform: scale(1.04); opacity: 1; }
-    100% { transform: scale(1.0); }
+    0%   { transform:scale(0.9); opacity:0; }
+    60%  { transform:scale(1.04); opacity:1; }
+    100% { transform:scale(1); }
 }
 @keyframes fadeSlide {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from { opacity:0; transform:translateY(8px); }
+    to   { opacity:1; transform:translateY(0); }
 }
-.fade-slide { animation: fadeSlide 0.35s ease; }
+.fade-slide { animation:fadeSlide 0.35s ease; }
 
-/* ===== METRIC ST (override) ===== */
-[data-testid="stMetric"] {
-    background: rgba(255,255,255,0.04) !important;
-    border: 1px solid rgba(255,255,255,0.1) !important;
-    border-radius: 14px !important;
-    padding: 14px !important;
-}
-[data-testid="stMetricValue"] { color: #a5b4fc !important; }
-[data-testid="stMetricLabel"] { color: #64748b !important; font-size: 0.78rem !important; }
+[data-testid="stMetric"] { background:rgba(255,255,255,0.04) !important; border:1px solid rgba(255,255,255,0.1) !important; border-radius:14px !important; padding:14px !important; }
+[data-testid="stMetricValue"] { color:#a5b4fc !important; }
+[data-testid="stMetricLabel"] { color:#64748b !important; font-size:0.78rem !important; }
 
-#MainMenu, footer, header { visibility: hidden; }
+#MainMenu, footer, header { visibility:hidden; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -321,6 +266,13 @@ def sec(icone, texto):
 
 def metric_card(valor, label, cor):
     return f'<div class="metric-card mc-{cor}"><p class="metric-value">{valor}</p><p class="metric-label">{label}</p></div>'
+
+def botao_voltar(destino="home", label="⬅  Voltar"):
+    """Renderiza botão de voltar visível e grande."""
+    if st.button(label, key=f"voltar_{destino}_{id(destino)}", use_container_width=False):
+        st.session_state.pagina = destino
+        st.session_state.feedback_status = None
+        st.rerun()
 
 
 # ════════════════════ SUPABASE ════════════════════
@@ -513,7 +465,7 @@ def gerar_excel(df_p, rc, rl, titulo):
     eb=BytesIO(); wb.save(eb); eb.seek(0); return eb.getvalue()
 
 
-# ════════════════════ INIT ════════════════════
+# ════════════════════ INIT SESSION STATE ════════════════════
 df_participantes = carregar_dados_participantes()
 if not df_participantes.empty:
     df_participantes = df_participantes.rename(
@@ -522,7 +474,8 @@ if not df_participantes.empty:
 reunioes = carregar_reunioes()
 hoje = date.today().strftime("%Y-%m-%d")
 
-for k,v in {
+defaults = {
+    "pagina":           "home",      # home | checkin | nova_reuniao | editar_reuniao | lista
     "active_meeting_id": None,
     "lista_presenca":   pd.DataFrame(columns=["ID","Nome","Cargo","Localidade","Horario"]),
     "feedback_status":  None,
@@ -530,115 +483,59 @@ for k,v in {
     "ultimo_registrado":None,
     "modo_continuo":    True,
     "ultima_foto_hash": None,
-}.items():
+    "reuniao_edit_id":  None,
+}
+for k,v in defaults.items():
     if k not in st.session_state: st.session_state[k]=v
 
 
-# ════════════════════ SIDEBAR ════════════════════
+# ════════════════════ SIDEBAR (auxiliar — não é a navegação principal) ════════════════════
 with st.sidebar:
-    st.markdown('<div style="text-align:center;padding:12px 0 6px"><span style="font-size:2.2rem">🎵</span><br><span style="color:#a5b4fc;font-weight:800;font-size:1.1rem">CCB Musical</span><br><span style="color:#64748b;font-size:0.78rem">Sistema de Presença</span></div>', unsafe_allow_html=True)
+    st.markdown('<div style="text-align:center;padding:10px 0 4px"><span style="font-size:2rem">🎵</span><br><span style="color:#a5b4fc;font-weight:800">CCB Musical</span></div>', unsafe_allow_html=True)
+    st.caption("Menu auxiliar")
     st.divider()
-
-    sec("📅", "AGENDA")
-    mostrar_passadas = st.checkbox("Mostrar passadas", value=False)
-    reunioes_visiveis = [r for r in reunioes if mostrar_passadas or r.get("data","")>=hoje]
-
-    reuniao_selecionada_id = None
-    if reunioes_visiveis:
-        labels = [label_reuniao(r) for r in reunioes_visiveis]
-        ids    = [r["id"] for r in reunioes_visiveis]
-        di = ids.index(st.session_state.active_meeting_id) if st.session_state.active_meeting_id in ids else 0
-        si = st.selectbox("", range(len(ids)), format_func=lambda i: labels[i], index=di, label_visibility="collapsed")
-        reuniao_selecionada_id = ids[si]
-    else:
-        st.info("💭 Nenhuma reunião agendada.")
-
-    if reuniao_selecionada_id:
-        ativo = st.session_state.active_meeting_id == reuniao_selecionada_id
-        lbl = "↺ Recarregar" if ativo else "▶ Iniciar Check-in"
-        if st.button(lbl, type="primary", use_container_width=True):
-            st.session_state.active_meeting_id = reuniao_selecionada_id
-            st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_selecionada_id)
-            st.session_state.feedback_status = None
-            st.session_state.ultimo_registrado = None
-            st.rerun()
-        if ativo:
-            n_pres = len(st.session_state.lista_presenca)
-            st.markdown(f'<div style="background:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.3);border-radius:10px;padding:8px 14px;color:#6ee7b7;font-size:0.85rem;text-align:center;margin-top:6px">✅ Ativo &mdash; {n_pres} presente(s)</div>', unsafe_allow_html=True)
-
-    st.divider()
-    sec("⚙️", "CRIAR / EDITAR")
-    modo = st.radio("", ["Criar nova","Editar selecionada"],
-                    index=1 if reuniao_selecionada_id else 0, label_visibility="collapsed")
-    rae = None
-    if modo=="Editar selecionada" and reuniao_selecionada_id:
-        for r in reunioes:
-            if r.get("id")==reuniao_selecionada_id: rae=r; break
-    nome_def   = rae.get("nome","") if rae else ""
-    data_def   = _parse_date(rae.get("data",hoje)) if rae else date.today()
-    hora_def   = _parse_time(rae.get("hora","19:30")) if rae else time(19,30)
-    filtro_def = rae.get("filtro_tipo","Todos") if rae else "Todos"
-    vals_def   = rae.get("filtro_valores",[]) if rae else []
-    with st.form("form_reuniao"):
-        ni  = st.text_input("Nome", value=nome_def, placeholder="Ex: Ensaio Regional")
-        di2 = st.date_input("Data", value=data_def)
-        hi  = st.time_input("Horário", value=hora_def)
-        ops = ["Todos","Por Cargo","Por Localidade","Manual"]
-        ft  = st.selectbox("Convocação", ops, index=ops.index(filtro_def) if filtro_def in ops else 0)
-        vals=[]
-        if ft=="Por Cargo" and not df_participantes.empty:
-            op2=sorted(df_participantes["Cargo"].unique())
-            vals=st.multiselect("Cargos",op2,default=[v for v in vals_def if v in op2])
-        elif ft=="Por Localidade" and not df_participantes.empty:
-            op2=sorted(df_participantes["Localidade"].unique())
-            vals=st.multiselect("Localidades",op2,default=[v for v in vals_def if v in op2])
-        elif ft=="Manual" and not df_participantes.empty:
-            op2=sorted(df_participantes["Nome"].unique())
-            vals=st.multiselect("Nomes",op2,default=[v for v in vals_def if v in op2])
-        salvar=st.form_submit_button("💾 Salvar", type="primary", use_container_width=True)
-    if salvar:
-        if not ni.strip(): st.error("Informe o nome.")
-        else:
-            payload={"id":rae.get("id") if (modo=="Editar selecionada" and rae) else None,
-                     "nome":ni.strip(),"data":di2.strftime("%Y-%m-%d"),
-                     "hora":hi.strftime("%H:%M"),"filtro_tipo":ft,
-                     "filtro_valores":vals if ft!="Todos" else []}
-            reunioes=atualizar_ou_criar_reuniao(reunioes,payload)
-            st.success("✅ Salvo!"); st.rerun()
-    if modo=="Editar selecionada" and rae:
-        conf=st.checkbox("⚠️ Confirmar exclusão")
-        if st.button("🗑 Excluir reunião", disabled=not conf, use_container_width=True):
-            reunioes=excluir_reuniao(reunioes,rae["id"])
-            if st.session_state.active_meeting_id==rae["id"]: st.session_state.active_meeting_id=None
-            st.success("Excluída!"); st.rerun()
+    if st.button("🏠  Início", use_container_width=True):
+        st.session_state.pagina = "home"; st.rerun()
+    if st.button("➕  Nova Reunião", use_container_width=True):
+        st.session_state.pagina = "nova_reuniao"; st.rerun()
+    if st.button("📋  Lista de Presenças", use_container_width=True):
+        st.session_state.pagina = "lista"; st.rerun()
 
 
-# ════════════════════ REUNIAO ATIVA ════════════════════
-reuniao_ativa = None
-if st.session_state.active_meeting_id:
-    for r in reunioes:
-        if r.get("id")==st.session_state.active_meeting_id: reuniao_ativa=r; break
-    if not reuniao_ativa: st.session_state.active_meeting_id=None; st.rerun()
+# ═══════════════════════════════════════════════════════════
+#  PÁGINA: HOME
+# ═══════════════════════════════════════════════════════════
+if st.session_state.pagina == "home":
 
-# ════════════════════ TELA INICIAL ════════════════════
-if not reuniao_ativa:
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Cabeçalho central
     st.markdown("""
-<div style="text-align:center;margin-bottom:32px">
+<div style="text-align:center;margin-bottom:30px;padding-top:10px">
   <div style="font-size:4rem;margin-bottom:10px">🎵</div>
   <h1 style="color:#a5b4fc;font-size:2.2rem;font-weight:800;margin:0">CCB Musical</h1>
   <p style="color:#64748b;font-size:1rem;margin:8px 0 0">Sistema de Controle de Presença</p>
 </div>
 """, unsafe_allow_html=True)
 
-    reunioes_hoje   = [r for r in reunioes if r.get("data")==hoje]
-    reunioes_futuras= [r for r in reunioes if r.get("data","")>hoje]
+    reunioes_hoje    = [r for r in reunioes if r.get("data")==hoje]
+    reunioes_futuras = [r for r in reunioes if r.get("data","")>hoje]
 
-    # ── Cards das reuniões de HOJE ──
+    # ── BOTÕES DE AÇÃO PRINCIPAIS ──
+    sec("⚡", "AÇÕES RÁPIDAS")
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        if st.button("➕\n\nNova Reunião", use_container_width=True, type="primary"):
+            st.session_state.pagina = "nova_reuniao"; st.rerun()
+    with col_b:
+        if st.button("✏️\n\nEditar Reunião", use_container_width=True):
+            st.session_state.pagina = "editar_reuniao"; st.rerun()
+    with col_c:
+        if st.button("📋\n\nVer Presenças", use_container_width=True):
+            st.session_state.pagina = "lista"; st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── REUNIÕES DE HOJE ──
     if reunioes_hoje:
-        sec("📅", "REUNIÕES DE HOJE")
+        sec("📅", "REUNIÕES DE HOJE — CLIQUE PARA INICIAR")
         cols = st.columns(min(len(reunioes_hoje), 3))
         for i, r in enumerate(reunioes_hoje):
             with cols[i % len(cols)]:
@@ -649,14 +546,14 @@ if not reuniao_ativa:
   <p class="rc-data">📅 {r.get('data','?')} <span class="reuniao-hoje-badge">HOJE</span></p>
 </div>
 """, unsafe_allow_html=True)
-                if st.button(f"▶ Iniciar Check-in", key=f"btn_hoje_{r['id']}", type="primary", use_container_width=True):
+                if st.button(f"▶  Iniciar Check-in", key=f"home_hoje_{r['id']}", type="primary", use_container_width=True):
                     st.session_state.active_meeting_id = r["id"]
-                    st.session_state.lista_presenca = carregar_presencas_reuniao(r["id"])
-                    st.session_state.feedback_status = None
+                    st.session_state.lista_presenca    = carregar_presencas_reuniao(r["id"])
+                    st.session_state.feedback_status   = None
                     st.session_state.ultimo_registrado = None
+                    st.session_state.pagina            = "checkin"
                     st.rerun()
 
-    # ── Próximas reuniões ──
     elif reunioes_futuras:
         sec("📆", "PRÓXIMAS REUNIÕES")
         cols = st.columns(min(len(reunioes_futuras[:3]), 3))
@@ -669,37 +566,192 @@ if not reuniao_ativa:
   <p class="rc-data">📅 {r.get('data','?')}</p>
 </div>
 """, unsafe_allow_html=True)
-                if st.button(f"▶ Iniciar Check-in", key=f"btn_fut_{r['id']}", type="primary", use_container_width=True):
+                if st.button(f"▶  Iniciar Check-in", key=f"home_fut_{r['id']}", type="primary", use_container_width=True):
                     st.session_state.active_meeting_id = r["id"]
-                    st.session_state.lista_presenca = carregar_presencas_reuniao(r["id"])
-                    st.session_state.feedback_status = None
+                    st.session_state.lista_presenca    = carregar_presencas_reuniao(r["id"])
+                    st.session_state.feedback_status   = None
                     st.session_state.ultimo_registrado = None
+                    st.session_state.pagina            = "checkin"
                     st.rerun()
-
-    # ── Nenhuma reunião ──
     else:
-        _, col_c, _ = st.columns([1,2,1])
-        with col_c:
+        _, col_c2, _ = st.columns([1,2,1])
+        with col_c2:
             st.markdown("""
 <div style="background:rgba(99,102,241,0.08);border:1px dashed rgba(99,102,241,0.4);
             border-radius:20px;padding:40px 32px;text-align:center;">
   <div style="font-size:3rem;margin-bottom:12px">📭</div>
   <p style="color:#a5b4fc;font-size:1.1rem;font-weight:600;margin:0">Nenhuma reunião agendada</p>
-  <p style="color:#475569;font-size:0.9rem;margin:10px 0 0">Crie uma nova reunião no menu lateral ←</p>
+  <p style="color:#475569;font-size:0.9rem;margin:10px 0 0">Use o botão <b style="color:#c7d2fe">➕ Nova Reunião</b> acima</p>
 </div>
 """, unsafe_allow_html=True)
 
     st.stop()
 
 
-# ════════════════════ BANNER PRINCIPAL ════════════════════
-conv_df    = filtrar_convocados(df_participantes, reuniao_ativa)
-total_conv = len(conv_df)
-total_pres = len(st.session_state.lista_presenca)
-porc       = int(total_pres / total_conv * 100) if total_conv > 0 else 0
-faltantes  = max(0, total_conv - total_pres)
+# ═══════════════════════════════════════════════════════════
+#  PÁGINA: NOVA REUNIÃO
+# ═══════════════════════════════════════════════════════════
+elif st.session_state.pagina == "nova_reuniao":
 
-st.markdown(f"""
+    # Botão voltar no topo
+    if st.button("⬅  Voltar ao Início", key="voltar_nova"):
+        st.session_state.pagina = "home"; st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    sec("➕", "CRIAR NOVA REUNIÃO")
+
+    with st.form("form_nova_reuniao"):
+        ni  = st.text_input("Nome da Reunião", placeholder="Ex: Ensaio Regional")
+        di2 = st.date_input("Data", value=date.today())
+        hi  = st.time_input("Horário", value=time(19,30))
+        ops = ["Todos","Por Cargo","Por Localidade","Manual"]
+        ft  = st.selectbox("Convocação", ops)
+        vals = []
+        if ft=="Por Cargo" and not df_participantes.empty:
+            vals = st.multiselect("Cargos", sorted(df_participantes["Cargo"].unique()))
+        elif ft=="Por Localidade" and not df_participantes.empty:
+            vals = st.multiselect("Localidades", sorted(df_participantes["Localidade"].unique()))
+        elif ft=="Manual" and not df_participantes.empty:
+            vals = st.multiselect("Participantes", sorted(df_participantes["Nome"].unique()))
+
+        col_s, col_c3 = st.columns(2)
+        with col_s:
+            salvar = st.form_submit_button("💾  Salvar Reunião", type="primary", use_container_width=True)
+        with col_c3:
+            cancelar = st.form_submit_button("✖  Cancelar", use_container_width=True)
+
+    if cancelar:
+        st.session_state.pagina = "home"; st.rerun()
+
+    if salvar:
+        if not ni.strip():
+            st.error("⚠️ Informe o nome da reunião.")
+        else:
+            payload = {"id":None, "nome":ni.strip(),
+                       "data":di2.strftime("%Y-%m-%d"), "hora":hi.strftime("%H:%M"),
+                       "filtro_tipo":ft, "filtro_valores":vals if ft!="Todos" else []}
+            reunioes = atualizar_ou_criar_reuniao(reunioes, payload)
+            st.success("✅ Reunião criada com sucesso!")
+            st.session_state.pagina = "home"; st.rerun()
+
+    st.stop()
+
+
+# ═══════════════════════════════════════════════════════════
+#  PÁGINA: EDITAR REUNIÃO
+# ═══════════════════════════════════════════════════════════
+elif st.session_state.pagina == "editar_reuniao":
+
+    if st.button("⬅  Voltar ao Início", key="voltar_editar"):
+        st.session_state.pagina = "home"; st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    sec("✏️", "EDITAR / EXCLUIR REUNIÃO")
+
+    reunioes_visiveis = [r for r in reunioes if r.get("data","")>=hoje]
+    if not reunioes_visiveis:
+        reunioes_visiveis = reunioes  # mostra todas se não houver futuras
+
+    if not reunioes_visiveis:
+        st.info("Nenhuma reunião cadastrada.")
+        st.stop()
+
+    labels = [label_reuniao(r) for r in reunioes_visiveis]
+    ids    = [r["id"] for r in reunioes_visiveis]
+    di_sel = 0
+    if st.session_state.reuniao_edit_id in ids:
+        di_sel = ids.index(st.session_state.reuniao_edit_id)
+
+    si = st.selectbox("Selecione a reunião:", range(len(ids)),
+                      format_func=lambda i: labels[i], index=di_sel)
+    rae = reunioes_visiveis[si]
+    st.session_state.reuniao_edit_id = rae["id"]
+
+    nome_def   = rae.get("nome","")
+    data_def   = _parse_date(rae.get("data",hoje))
+    hora_def   = _parse_time(rae.get("hora","19:30"))
+    filtro_def = rae.get("filtro_tipo","Todos")
+    vals_def   = rae.get("filtro_valores",[])
+
+    with st.form("form_editar_reuniao"):
+        ni  = st.text_input("Nome", value=nome_def)
+        di2 = st.date_input("Data", value=data_def)
+        hi  = st.time_input("Horário", value=hora_def)
+        ops = ["Todos","Por Cargo","Por Localidade","Manual"]
+        ft  = st.selectbox("Convocação", ops, index=ops.index(filtro_def) if filtro_def in ops else 0)
+        vals = []
+        if ft=="Por Cargo" and not df_participantes.empty:
+            op2=sorted(df_participantes["Cargo"].unique())
+            vals=st.multiselect("Cargos",op2,default=[v for v in vals_def if v in op2])
+        elif ft=="Por Localidade" and not df_participantes.empty:
+            op2=sorted(df_participantes["Localidade"].unique())
+            vals=st.multiselect("Localidades",op2,default=[v for v in vals_def if v in op2])
+        elif ft=="Manual" and not df_participantes.empty:
+            op2=sorted(df_participantes["Nome"].unique())
+            vals=st.multiselect("Participantes",op2,default=[v for v in vals_def if v in op2])
+
+        col_s2, col_c4 = st.columns(2)
+        with col_s2:
+            salvar = st.form_submit_button("💾  Salvar Alterações", type="primary", use_container_width=True)
+        with col_c4:
+            cancelar = st.form_submit_button("✖  Cancelar", use_container_width=True)
+
+    if cancelar:
+        st.session_state.pagina = "home"; st.rerun()
+
+    if salvar:
+        if not ni.strip():
+            st.error("⚠️ Informe o nome.")
+        else:
+            payload = {"id":rae["id"],"nome":ni.strip(),
+                       "data":di2.strftime("%Y-%m-%d"),"hora":hi.strftime("%H:%M"),
+                       "filtro_tipo":ft,"filtro_valores":vals if ft!="Todos" else []}
+            reunioes = atualizar_ou_criar_reuniao(reunioes, payload)
+            st.success("✅ Reunião atualizada!"); st.session_state.pagina="home"; st.rerun()
+
+    st.markdown("---")
+    sec("🗑️", "EXCLUIR REUNIÃO")
+    conf = st.checkbox("⚠️ Confirmar exclusão desta reunião")
+    if st.button("🗑  Excluir", disabled=not conf, use_container_width=True):
+        reunioes = excluir_reuniao(reunioes, rae["id"])
+        if st.session_state.active_meeting_id == rae["id"]:
+            st.session_state.active_meeting_id = None
+        st.success("Excluída!"); st.session_state.pagina="home"; st.rerun()
+
+    st.stop()
+
+
+# ═══════════════════════════════════════════════════════════
+#  PÁGINA: CHECK-IN
+# ═══════════════════════════════════════════════════════════
+elif st.session_state.pagina == "checkin":
+
+    # Valida reunião ativa
+    reuniao_ativa = None
+    if st.session_state.active_meeting_id:
+        for r in reunioes:
+            if r.get("id")==st.session_state.active_meeting_id:
+                reuniao_ativa=r; break
+
+    if not reuniao_ativa:
+        st.warning("Nenhuma reunião selecionada.")
+        if st.button("⬅  Voltar ao Início", key="volt_checkin_sem"):
+            st.session_state.pagina="home"; st.rerun()
+        st.stop()
+
+    # ── Barra superior: Voltar + Nome da reunião ──
+    col_back, col_titulo = st.columns([1, 5])
+    with col_back:
+        if st.button("⬅  Voltar", key="volt_checkin", use_container_width=True):
+            st.session_state.pagina="home"; st.rerun()
+
+    conv_df    = filtrar_convocados(df_participantes, reuniao_ativa)
+    total_conv = len(conv_df)
+    total_pres = len(st.session_state.lista_presenca)
+    porc       = int(total_pres / total_conv * 100) if total_conv > 0 else 0
+    faltantes  = max(0, total_conv - total_pres)
+
+    st.markdown(f"""
 <div class="banner">
 <div class="banner-icon">🎵</div>
 <div>
@@ -709,74 +761,83 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown(
-    f'<div class="metric-row">'
-    f'{metric_card(total_conv,  "Convocados",  "blue")}'
-    f'{metric_card(total_pres,  "Presentes",   "green")}'
-    f'{metric_card(faltantes,   "Faltantes",   "red")}'
-    f'<div class="metric-card mc-purple"><p class="metric-value" style="color:#a78bfa">{porc}%</p><p class="metric-label">Presença</p></div>'
-    f'</div>',
-    unsafe_allow_html=True
-)
+    st.markdown(
+        f'<div class="metric-row">'
+        f'{metric_card(total_conv,  "Convocados",  "blue")}'
+        f'{metric_card(total_pres,  "Presentes",   "green")}'
+        f'{metric_card(faltantes,   "Faltantes",   "red")}'
+        f'<div class="metric-card mc-purple"><p class="metric-value" style="color:#a78bfa">{porc}%</p><p class="metric-label">Presença</p></div>'
+        f'</div>',
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        f'<div class="prog-wrap"><div class="prog-fill" style="width:{porc}%"></div></div>',
+        unsafe_allow_html=True
+    )
 
-st.markdown(
-    f'<div class="prog-wrap"><div class="prog-fill" style="width:{porc}%"></div></div>',
-    unsafe_allow_html=True
-)
+    # Botões de navegação entre abas (substitui sidebar)
+    sec("🧭", "NAVEGAR")
+    nb1, nb2, nb3, nb4 = st.columns(4)
+    with nb1:
+        if st.button("📷  Câmera QR", use_container_width=True, key="nav_cam"):
+            st.session_state.aba_checkin = "cam"
+    with nb2:
+        if st.button("⌨️  Digitar Código", use_container_width=True, key="nav_dig"):
+            st.session_state.aba_checkin = "manual"
+    with nb3:
+        if st.button(f"📋  Presentes ({total_pres})", use_container_width=True, key="nav_lista"):
+            st.session_state.aba_checkin = "lista"
+    with nb4:
+        if st.button("↺  Recarregar", use_container_width=True, key="nav_reload"):
+            st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_ativa["id"])
+            st.rerun()
 
+    if "aba_checkin" not in st.session_state:
+        st.session_state.aba_checkin = "cam"
 
-# ════════════════════ ABAS ════════════════════
-aba_cam, aba_manual, aba_lista = st.tabs([
-    "📷  Câmera QR",
-    "⌨️  Digitar / Buscar",
-    f"📋  Presentes ({total_pres})",
-])
+    aba_cam, aba_manual, aba_lista_pres = st.tabs([
+        "📷  Câmera QR",
+        "⌨️  Digitar / Buscar",
+        f"📋  Presentes ({total_pres})",
+    ])
 
+    # ── ABA CÂMERA ──
+    with aba_cam:
+        col_cam, col_result = st.columns([5, 4], gap="large")
+        with col_cam:
+            sec("📷", "APONTE PARA O QR CODE")
+            st.caption("💡 Mantenha o crachá bem iluminado e a ~15cm da câmera.")
+            modo_continuo = st.toggle("🔄 Modo contínuo", value=st.session_state.modo_continuo,
+                                      help="Após cada leitura a câmera reseta automaticamente.")
+            st.session_state.modo_continuo = modo_continuo
+            foto = st.camera_input("", label_visibility="collapsed", key="cam_qr")
 
-# ===================================================================
-# ABA 1 — CÂMERA
-# ===================================================================
-with aba_cam:
-    col_cam, col_result = st.columns([5, 4], gap="large")
+        with col_result:
+            sec("✨", "RESULTADO")
+            if foto is not None:
+                foto_hash = hash(foto.getvalue())
+                if foto_hash != st.session_state.ultima_foto_hash:
+                    st.session_state.ultima_foto_hash = foto_hash
+                    img = Image.open(foto)
+                    codigo_qr = decodificar_qr_robusto(img)
+                    if codigo_qr:
+                        status, msg = registrar_por_codigo(codigo_qr, df_participantes, reuniao_ativa["id"])
+                        st.session_state.feedback_status = status
+                        st.session_state.feedback_msg    = msg
+                        if modo_continuo and status in ("ok","duplicado"):
+                            if "cam_qr" in st.session_state: del st.session_state["cam_qr"]
+                        st.rerun()
+                    else:
+                        st.session_state.feedback_status = "sem_qr"
+                        st.session_state.feedback_msg    = "QR Code não identificado. Tente com mais luz."
+                        st.rerun()
 
-    with col_cam:
-        sec("📷", "APONTE PARA O QR CODE")
-        st.caption("💡 Dica: mantenha o crachá bem iluminado e a ~15cm da câmera para melhor leitura.")
-        modo_continuo = st.toggle(
-            "🔄 Modo contínuo",
-            value=st.session_state.modo_continuo,
-            help="Após cada leitura a câmera reseta automaticamente para o próximo."
-        )
-        st.session_state.modo_continuo = modo_continuo
-        foto = st.camera_input("", label_visibility="collapsed", key="cam_qr")
+            s  = st.session_state.feedback_status
+            m  = st.session_state.feedback_msg
+            ur = st.session_state.ultimo_registrado
 
-    with col_result:
-        sec("✨", "RESULTADO")
-
-        if foto is not None:
-            foto_hash = hash(foto.getvalue())
-            if foto_hash != st.session_state.ultima_foto_hash:
-                st.session_state.ultima_foto_hash = foto_hash
-                img = Image.open(foto)
-                codigo_qr = decodificar_qr_robusto(img)
-                if codigo_qr:
-                    status, msg = registrar_por_codigo(codigo_qr, df_participantes, reuniao_ativa["id"])
-                    st.session_state.feedback_status = status
-                    st.session_state.feedback_msg    = msg
-                    if modo_continuo and status in ("ok","duplicado"):
-                        if "cam_qr" in st.session_state: del st.session_state["cam_qr"]
-                    st.rerun()
-                else:
-                    st.session_state.feedback_status = "sem_qr"
-                    st.session_state.feedback_msg    = "QR Code não identificado. Tente com mais luz."
-                    st.rerun()
-
-        s  = st.session_state.feedback_status
-        m  = st.session_state.feedback_msg
-        ur = st.session_state.ultimo_registrado
-
-        if s=="ok" and ur:
-            st.markdown(f"""
+            if s=="ok" and ur:
+                st.markdown(f"""
 <div class="fb-ok">
 <p class="fb-title">✅ Presença Registrada!</p>
 <p class="fb-nome">{ur['Nome']}</p>
@@ -785,83 +846,158 @@ with aba_cam:
 <p class="m-nome">🎸 {ur['Cargo']}</p>
 <p class="m-det">📍 {ur['Localidade']}&nbsp;&nbsp;•&nbsp;&nbsp;🕐 {ur['Horario']}</p>
 </div>""", unsafe_allow_html=True)
-            if modo_continuo:
-                st.markdown('<div class="fb-idle"><p class="fb-title">📸 Câmera pronta para o próximo crachá!</p></div>', unsafe_allow_html=True)
-        elif s=="duplicado":
-            st.markdown(f'<div class="fb-warn"><p class="fb-title">⚠️ Já registrado!<br><span style="font-size:0.9rem;font-weight:400">{m}</span></p></div>', unsafe_allow_html=True)
-            if modo_continuo: st.markdown('<div class="fb-idle"><p class="fb-title">📸 Pronto para o próximo!</p></div>', unsafe_allow_html=True)
-        elif s=="erro":
-            st.markdown(f'<div class="fb-erro"><p class="fb-title">❌ {m}</p></div>', unsafe_allow_html=True)
-        elif s=="sem_qr":
-            st.markdown(f'<div class="fb-warn"><p class="fb-title">📣 {m}</p></div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="fb-idle"><p class="fb-title">📷 Aguardando foto do QR Code...</p></div>', unsafe_allow_html=True)
+                if modo_continuo:
+                    st.markdown('<div class="fb-idle"><p class="fb-title">📸 Câmera pronta para o próximo crachá!</p></div>', unsafe_allow_html=True)
+            elif s=="duplicado":
+                st.markdown(f'<div class="fb-warn"><p class="fb-title">⚠️ Já registrado!<br><span style="font-size:0.9rem;font-weight:400">{m}</span></p></div>', unsafe_allow_html=True)
+                if modo_continuo: st.markdown('<div class="fb-idle"><p class="fb-title">📸 Pronto para o próximo!</p></div>', unsafe_allow_html=True)
+            elif s=="erro":
+                st.markdown(f'<div class="fb-erro"><p class="fb-title">❌ {m}</p></div>', unsafe_allow_html=True)
+            elif s=="sem_qr":
+                st.markdown(f'<div class="fb-warn"><p class="fb-title">📣 {m}</p></div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="fb-idle"><p class="fb-title">📷 Aguardando foto do QR Code...</p></div>', unsafe_allow_html=True)
 
-        if not (s=="ok" and ur) and not st.session_state.lista_presenca.empty:
-            ult = st.session_state.lista_presenca.iloc[-1]
-            st.markdown(f'<div class="membro-card" style="margin-top:16px"><p class="m-nome" style="color:#94a3b8;font-size:0.8rem">⏱ Último registrado</p><p class="m-nome">{ult["Nome"]}</p><p class="m-det">{ult["Horario"]}</p></div>', unsafe_allow_html=True)
+            if not (s=="ok" and ur) and not st.session_state.lista_presenca.empty:
+                ult = st.session_state.lista_presenca.iloc[-1]
+                st.markdown(f'<div class="membro-card" style="margin-top:16px"><p class="m-nome" style="color:#94a3b8;font-size:0.8rem">⏱ Último registrado</p><p class="m-nome">{ult["Nome"]}</p><p class="m-det">{ult["Horario"]}</p></div>', unsafe_allow_html=True)
 
+    # ── ABA MANUAL ──
+    with aba_manual:
+        tab_cod, tab_nome = st.tabs(["🔢 Pelo Código", "🔍 Pelo Nome"])
+        with tab_cod:
+            sec("🔢", "DIGITAR CÓDIGO")
+            with st.form("form_manual", clear_on_submit=True):
+                c1, c2 = st.columns([3,1])
+                with c1:
+                    cod = st.text_input("", placeholder="Ex: LC005, CF001...",
+                                        label_visibility="collapsed").strip().upper()
+                with c2:
+                    ok = st.form_submit_button("✔ Registrar", type="primary", use_container_width=True)
+            if ok and cod:
+                status, msg = registrar_por_codigo(cod, df_participantes, reuniao_ativa["id"])
+                st.session_state.feedback_status = status
+                st.session_state.feedback_msg    = msg
+                st.rerun()
+            s,m,ur = st.session_state.feedback_status, st.session_state.feedback_msg, st.session_state.ultimo_registrado
+            if s=="ok" and ur:
+                st.markdown(f'<div class="fb-ok"><p class="fb-title">✅ Registrado!</p><p class="fb-nome">{ur["Nome"]}</p></div>', unsafe_allow_html=True)
+            elif s=="duplicado": st.markdown(f'<div class="fb-warn"><p class="fb-title">⚠️ {m}</p></div>', unsafe_allow_html=True)
+            elif s=="erro":      st.markdown(f'<div class="fb-erro"><p class="fb-title">❌ {m}</p></div>', unsafe_allow_html=True)
 
-# ===================================================================
-# ABA 2 — MANUAL
-# ===================================================================
-with aba_manual:
-    tab_cod, tab_nome = st.tabs(["🔢 Pelo Código", "🔍 Pelo Nome"])
+        with tab_nome:
+            sec("🔍", "BUSCAR POR NOME")
+            if not df_participantes.empty:
+                nome_busca = st.text_input("", placeholder="Digite parte do nome...", label_visibility="collapsed")
+                if nome_busca.strip():
+                    filtrado = df_participantes[
+                        df_participantes["Nome"].str.contains(nome_busca.strip(), case=False, na=False)
+                    ][["ID","Nome","Cargo","Localidade"]]
+                    if not filtrado.empty:
+                        st.dataframe(filtrado, hide_index=True, use_container_width=True)
+                        sel = st.selectbox("Selecione:", options=filtrado["ID"].tolist(),
+                                           format_func=lambda x: f"{x}  —  {filtrado[filtrado['ID']==x]['Nome'].values[0]}")
+                        if st.button("✔ Registrar selecionado", type="primary"):
+                            status, msg = registrar_por_codigo(str(sel), df_participantes, reuniao_ativa["id"])
+                            st.session_state.feedback_status = status
+                            st.session_state.feedback_msg    = msg
+                            st.rerun()
+                    else:
+                        st.info("🔍 Nenhum participante encontrado.")
 
-    with tab_cod:
-        sec("🔢", "DIGITAR CÓDIGO")
-        with st.form("form_manual", clear_on_submit=True):
-            c1, c2 = st.columns([3,1])
-            with c1:
-                cod = st.text_input("", placeholder="Ex: LC005, CF001...",
-                                    label_visibility="collapsed").strip().upper()
-            with c2:
-                ok = st.form_submit_button("✔ Registrar", type="primary", use_container_width=True)
-        if ok and cod:
-            status, msg = registrar_por_codigo(cod, df_participantes, reuniao_ativa["id"])
-            st.session_state.feedback_status = status
-            st.session_state.feedback_msg    = msg
-            st.rerun()
-        s,m,ur = st.session_state.feedback_status, st.session_state.feedback_msg, st.session_state.ultimo_registrado
-        if s=="ok" and ur:
-            st.markdown(f'<div class="fb-ok"><p class="fb-title">✅ Registrado com sucesso!</p><p class="fb-nome">{ur["Nome"]}</p></div>', unsafe_allow_html=True)
-        elif s=="duplicado": st.markdown(f'<div class="fb-warn"><p class="fb-title">⚠️ {m}</p></div>', unsafe_allow_html=True)
-        elif s=="erro":      st.markdown(f'<div class="fb-erro"><p class="fb-title">❌ {m}</p></div>', unsafe_allow_html=True)
+    # ── ABA LISTA ──
+    with aba_lista_pres:
+        if not st.session_state.lista_presenca.empty:
+            df_pres = st.session_state.lista_presenca
+            rc = df_pres["Cargo"].value_counts()
+            rl = df_pres["Localidade"].value_counts()
 
-    with tab_nome:
-        sec("🔍", "BUSCAR POR NOME")
-        if not df_participantes.empty:
-            nome_busca = st.text_input("", placeholder="Digite parte do nome...",
-                                       label_visibility="collapsed")
-            if nome_busca.strip():
-                filtrado = df_participantes[
-                    df_participantes["Nome"].str.contains(nome_busca.strip(), case=False, na=False)
-                ][["ID","Nome","Cargo","Localidade"]]
-                if not filtrado.empty:
-                    st.dataframe(filtrado, hide_index=True, use_container_width=True)
-                    sel = st.selectbox(
-                        "Selecione:", options=filtrado["ID"].tolist(),
-                        format_func=lambda x: f"{x}  —  {filtrado[filtrado['ID']==x]['Nome'].values[0]}"
-                    )
-                    if st.button("✔ Registrar selecionado", type="primary"):
-                        status, msg = registrar_por_codigo(str(sel), df_participantes, reuniao_ativa["id"])
-                        st.session_state.feedback_status = status
-                        st.session_state.feedback_msg    = msg
+            sec("📊", "RESUMO")
+            r1, r2 = st.columns(2)
+            with r1:
+                st.markdown("**🎸 Por Cargo**")
+                st.dataframe(rc.rename("Qtd").reset_index().rename(columns={"index":"Cargo"}),
+                             hide_index=True, use_container_width=True)
+            with r2:
+                st.markdown("**📍 Por Localidade**")
+                st.dataframe(rl.rename("Qtd").reset_index().rename(columns={"index":"Localidade"}),
+                             hide_index=True, use_container_width=True)
+
+            sec("👥", "LISTA COMPLETA")
+            st.dataframe(
+                df_pres[["Nome","Cargo","Localidade","Horario"]].reset_index(drop=True),
+                hide_index=True, use_container_width=True,
+                column_config={
+                    "Nome":       st.column_config.TextColumn("👤 Nome"),
+                    "Cargo":      st.column_config.TextColumn("🎸 Cargo"),
+                    "Localidade": st.column_config.TextColumn("📍 Local"),
+                    "Horario":    st.column_config.TextColumn("🕐 Horário"),
+                }
+            )
+
+            sec("📄", "EXPORTAR")
+            arq = f"{reuniao_ativa.get('data','')}_{reuniao_ativa.get('nome','reuniao')}".replace(" ","_")
+            cA, cB, cC = st.columns(3)
+            with cA:
+                st.download_button("⬇️ Baixar PDF", icon="📄",
+                    data=gerar_pdf(df_pres,rc,rl,reuniao_ativa.get("nome","Reuniao")),
+                    file_name=f"{arq}.pdf", mime="application/pdf", use_container_width=True)
+            with cB:
+                st.download_button("⬇️ Baixar Excel", icon="📊",
+                    data=gerar_excel(df_pres,rc,rl,reuniao_ativa.get("nome","Reuniao")),
+                    file_name=f"{arq}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True)
+            with cC:
+                conf_del = st.checkbox("⚠️ Confirmar limpeza")
+                if st.button("🗑 Limpar lista", disabled=not conf_del, use_container_width=True):
+                    if limpar_presencas_reuniao(reuniao_ativa["id"]):
+                        st.session_state.lista_presenca    = pd.DataFrame(columns=["ID","Nome","Cargo","Localidade","Horario"])
+                        st.session_state.ultimo_registrado = None
                         st.rerun()
-                else:
-                    st.info("🔍 Nenhum participante encontrado.")
+        else:
+            st.markdown("""
+<div style="text-align:center;padding:48px 0">
+<div style="font-size:3rem">📋</div>
+<p style="color:#64748b;font-size:1rem;margin-top:12px">Nenhuma presença registrada ainda.</p>
+</div>
+""", unsafe_allow_html=True)
+            if st.button("↺ Recarregar do banco", use_container_width=True):
+                st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_ativa["id"])
+                st.rerun()
+
+    # Botão Voltar no FINAL da tela de check-in também
+    st.markdown("---")
+    if st.button("⬅  Voltar ao Início", key="volt_checkin_bottom", use_container_width=True):
+        st.session_state.pagina = "home"; st.rerun()
+
+    st.stop()
 
 
-# ===================================================================
-# ABA 3 — LISTA
-# ===================================================================
-with aba_lista:
-    if not st.session_state.lista_presenca.empty:
-        df_pres = st.session_state.lista_presenca
+# ═══════════════════════════════════════════════════════════
+#  PÁGINA: LISTA DE PRESENÇAS (acesso direto)
+# ═══════════════════════════════════════════════════════════
+elif st.session_state.pagina == "lista":
+
+    if st.button("⬅  Voltar ao Início", key="volt_lista"):
+        st.session_state.pagina = "home"; st.rerun()
+
+    sec("📋", "SELECIONAR REUNIÃO PARA VER PRESENÇAS")
+
+    if not reunioes:
+        st.info("Nenhuma reunião cadastrada."); st.stop()
+
+    labels = [label_reuniao(r) for r in reunioes]
+    ids    = [r["id"] for r in reunioes]
+    si = st.selectbox("Reunião:", range(len(ids)), format_func=lambda i: labels[i])
+    rid_sel = ids[si]
+
+    df_pres = carregar_presencas_reuniao(rid_sel)
+
+    if not df_pres.empty:
         rc = df_pres["Cargo"].value_counts()
         rl = df_pres["Localidade"].value_counts()
 
-        sec("📊", "RESUMO")
         r1, r2 = st.columns(2)
         with r1:
             st.markdown("**🎸 Por Cargo**")
@@ -872,50 +1008,20 @@ with aba_lista:
             st.dataframe(rl.rename("Qtd").reset_index().rename(columns={"index":"Localidade"}),
                          hide_index=True, use_container_width=True)
 
-        sec("👥", "LISTA COMPLETA")
-        st.dataframe(
-            df_pres[["Nome","Cargo","Localidade","Horario"]].reset_index(drop=True),
-            hide_index=True, use_container_width=True,
-            column_config={
-                "Nome":      st.column_config.TextColumn("👤 Nome"),
-                "Cargo":     st.column_config.TextColumn("🎸 Cargo"),
-                "Localidade":st.column_config.TextColumn("📍 Local"),
-                "Horario":   st.column_config.TextColumn("🕐 Horário"),
-            }
-        )
+        st.dataframe(df_pres[["Nome","Cargo","Localidade","Horario"]].reset_index(drop=True),
+                     hide_index=True, use_container_width=True)
 
-        sec("📄", "EXPORTAR")
-        arq = f"{reuniao_ativa.get('data','')}_{reuniao_ativa.get('nome','reuniao')}".replace(" ","_")
-        cA, cB, cC = st.columns(3)
-        with cA:
-            st.download_button(
-                "⬇️ Baixar PDF", icon="📄",
-                data=gerar_pdf(df_pres,rc,rl,reuniao_ativa.get("nome","Reuniao")),
-                file_name=f"{arq}.pdf", mime="application/pdf",
-                use_container_width=True
-            )
-        with cB:
-            st.download_button(
-                "⬇️ Baixar Excel", icon="📊",
-                data=gerar_excel(df_pres,rc,rl,reuniao_ativa.get("nome","Reuniao")),
-                file_name=f"{arq}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-        with cC:
-            conf_del = st.checkbox("⚠️ Confirmar limpeza")
-            if st.button("🗑 Limpar lista", disabled=not conf_del, use_container_width=True):
-                if limpar_presencas_reuniao(reuniao_ativa["id"]):
-                    st.session_state.lista_presenca    = pd.DataFrame(columns=["ID","Nome","Cargo","Localidade","Horario"])
-                    st.session_state.ultimo_registrado = None
-                    st.rerun()
+        arq = f"{reunioes[si].get('data','')}_{reunioes[si].get('nome','reuniao')}".replace(" ","_")
+        cA2, cB2 = st.columns(2)
+        with cA2:
+            st.download_button("⬇️ PDF", data=gerar_pdf(df_pres,rc,rl,reunioes[si].get("nome","")),
+                               file_name=f"{arq}.pdf", mime="application/pdf", use_container_width=True)
+        with cB2:
+            st.download_button("⬇️ Excel", data=gerar_excel(df_pres,rc,rl,reunioes[si].get("nome","")),
+                               file_name=f"{arq}.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               use_container_width=True)
     else:
-        st.markdown("""
-<div style="text-align:center;padding:48px 0">
-<div style="font-size:3rem">📋</div>
-<p style="color:#64748b;font-size:1rem;margin-top:12px">Nenhuma presença registrada ainda.</p>
-</div>
-""", unsafe_allow_html=True)
-        if st.button("↺ Recarregar do banco", use_container_width=True):
-            st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_ativa["id"])
-            st.rerun()
+        st.info("Nenhuma presença registrada nesta reunião.")
+
+    st.stop()
