@@ -9,7 +9,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import json
 import time as time_module
 from supabase import create_client, Client
-import streamlit.components.v1 as components
+from camera_component import camera_qr
 
 st.set_page_config(page_title="Check-in QR Code", layout="wide")
 
@@ -20,7 +20,6 @@ st.markdown("""
     color: white; padding: 18px 24px; border-radius: 14px;
     font-size: 1.4rem; font-weight: bold; text-align: center;
     margin: 10px 0; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-    animation: fadeInUp 0.4s ease;
 }
 .registro-aviso {
     background: linear-gradient(135deg, #b8860b, #e0a800);
@@ -32,103 +31,8 @@ st.markdown("""
     color: white; padding: 18px 24px; border-radius: 14px;
     font-size: 1.2rem; font-weight: bold; text-align: center; margin: 10px 0;
 }
-@keyframes fadeInUp {
-    from { opacity:0; transform:translateY(20px); }
-    to   { opacity:1; transform:translateY(0); }
-}
 </style>
 """, unsafe_allow_html=True)
-
-# CAMERA_HTML - todos os textos sem emojis para evitar UnicodeEncodeError
-CAMERA_HTML = """<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
-<style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:#111; display:flex; flex-direction:column;
-         align-items:center; justify-content:center; min-height:100vh; font-family:sans-serif; }
-  #container { position:relative; width:100%; max-width:480px; }
-  video { width:100%; border-radius:12px; display:block; }
-  canvas { display:none; }
-  #mira {
-    position:absolute; top:50%; left:50%;
-    transform:translate(-50%,-50%);
-    width:200px; height:200px;
-    border:3px solid rgba(255,255,255,0.8);
-    border-radius:16px;
-    box-shadow: 0 0 0 4000px rgba(0,0,0,0.4);
-    pointer-events:none;
-  }
-  #status {
-    margin-top:10px; padding:14px 16px; border-radius:10px;
-    font-size:1rem; font-weight:bold; text-align:center; color:white;
-    background:#333; min-height:50px; transition:background 0.3s;
-  }
-  #status.ok  { background:linear-gradient(135deg,#1a7a4a,#25a060); }
-  #status.warn { background:linear-gradient(135deg,#b8860b,#e0a800); }
-</style>
-</head>
-<body>
-<div id="container">
-  <video id="video" autoplay playsinline muted></video>
-  <canvas id="canvas"></canvas>
-  <div id="mira"></div>
-</div>
-<div id="status">Aponte a camera para o QR Code...</div>
-<script>
-var video    = document.getElementById('video');
-var canvas   = document.getElementById('canvas');
-var statusEl = document.getElementById('status');
-var ctx      = canvas.getContext('2d');
-var scanning  = true;
-var lastCode  = '';
-var lastTime  = 0;
-var COOLDOWN  = 3000;
-
-navigator.mediaDevices.getUserMedia({
-  video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }
-}).then(function(stream) {
-  video.srcObject = stream;
-  video.play();
-  requestAnimationFrame(scan);
-}).catch(function() {
-  statusEl.textContent = 'Permita o acesso a camera nas configuracoes do navegador.';
-  statusEl.className = 'warn';
-});
-
-function scan() {
-  if (!scanning || video.readyState !== video.HAVE_ENOUGH_DATA) {
-    requestAnimationFrame(scan); return;
-  }
-  canvas.width  = video.videoWidth;
-  canvas.height = video.videoHeight;
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  var code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
-  if (code) {
-    var now = Date.now();
-    if (code.data === lastCode && (now - lastTime) < COOLDOWN) {
-      requestAnimationFrame(scan); return;
-    }
-    lastCode = code.data;
-    lastTime = now;
-    statusEl.textContent = 'Registrando: ' + code.data;
-    statusEl.className   = 'ok';
-    scanning = false;
-    window.parent.postMessage({ type: 'qr_code', data: code.data }, '*');
-    setTimeout(function() {
-      statusEl.textContent = 'Aponte a camera para o proximo QR Code...';
-      statusEl.className   = '';
-      scanning = true;
-    }, 2000);
-  }
-  requestAnimationFrame(scan);
-}
-</script>
-</body>
-</html>"""
 
 @st.cache_resource
 def get_supabase() -> Client:
@@ -152,7 +56,8 @@ def carregar_dados_participantes():
             return df
         return pd.DataFrame(columns=["id","nome","cargo","localidade"])
     except Exception as e:
-        st.error(f"Erro: {e}"); return pd.DataFrame()
+        st.error(f"Erro ao carregar participantes: {e}")
+        return pd.DataFrame()
 
 def carregar_presencas_reuniao(mid):
     try:
@@ -177,7 +82,7 @@ def salvar_registro_presenca(mid, d):
             "data_registro": obter_hora_atual().isoformat()
         }).execute()
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Erro ao salvar: {e}")
 
 def limpar_presencas_reuniao(mid):
     try:
@@ -240,16 +145,16 @@ def registrar_presenca(codigo_lido, df_participantes, ids_permitidos, meeting_id
     cl = "Localidade" if "Localidade" in df_participantes.columns else "localidade"
     part = df_participantes[df_participantes[ci] == codigo_lido]
     if part.empty:
-        return "erro", f"Codigo '{codigo_lido}' nao encontrado."
+        return "erro", f"Codigo '{codigo_lido}' nao encontrado na base."
     nome = part.iloc[0][cn]
     id_p = part.iloc[0][ci]
     if ids_permitidos is not None and id_p not in ids_permitidos:
         return "bloqueado", f"{nome} nao consta na convocacao!"
     if id_p in st.session_state.lista_presenca["ID"].values:
-        return "duplicado", f"{nome} ja esta na lista."
+        return "duplicado", f"{nome} ja registrado."
     hora_reg = obter_hora_atual().strftime("%H:%M:%S")
-    novo = {"ID":id_p,"Nome":nome,"Cargo":part.iloc[0][cc],
-            "Localidade":part.iloc[0][cl],"Horario":hora_reg}
+    novo = {"ID":id_p, "Nome":nome, "Cargo":part.iloc[0][cc],
+            "Localidade":part.iloc[0][cl], "Horario":hora_reg}
     salvar_registro_presenca(meeting_id, novo)
     st.session_state.lista_presenca = pd.concat(
         [st.session_state.lista_presenca, pd.DataFrame([novo])], ignore_index=True)
@@ -321,7 +226,7 @@ def gerar_excel(df_p, rc, rl, titulo):
     return eb.getvalue()
 
 # ==========================
-# APP
+# INICIALIZACAO
 # ==========================
 df_participantes = carregar_dados_participantes()
 if not df_participantes.empty:
@@ -333,11 +238,9 @@ reunioes = carregar_reunioes()
 defaults = {
     "active_meeting_id": None,
     "lista_presenca": pd.DataFrame(columns=["ID","Nome","Cargo","Localidade","Horario"]),
-    "ultimo_codigo_lido": None,
-    "ultimo_lido_ts": 0.0,
+    "ultimo_qr": None,
     "feedback_status": None,
     "feedback_msg": "",
-    "feedback_ts": 0.0,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -452,37 +355,21 @@ cc2.metric("Presentes",  total_pres)
 cc3.metric("Faltantes",  max(0, total_conv - total_pres))
 st.divider()
 
-# --- Processa QR recebido via query_params ---
-qr_da_url = st.query_params.get("qr", None)
-if qr_da_url and qr_da_url != st.session_state.ultimo_codigo_lido:
-    agora = time_module.time()
-    st.session_state.ultimo_codigo_lido = qr_da_url
-    st.session_state.ultimo_lido_ts     = agora
-    status, msg = registrar_presenca(qr_da_url, df_participantes, ids_permitidos, reuniao_ativa["id"])
+# --- Camera Automatica via declare_component ---
+st.markdown("### Camera - Leitura Automatica")
+st.caption("Aponte a camera para o QR Code. O registro acontece automaticamente.")
+
+# O componente retorna o codigo QR lido (ou None na primeira carga)
+codigo_lido = camera_qr(key="camera_qr_reader")
+
+# Processa o QR recebido do componente
+if codigo_lido and codigo_lido != st.session_state.ultimo_qr:
+    st.session_state.ultimo_qr = codigo_lido
+    status, msg = registrar_presenca(
+        codigo_lido, df_participantes, ids_permitidos, reuniao_ativa["id"])
     st.session_state.feedback_status = status
     st.session_state.feedback_msg    = msg
-    st.session_state.feedback_ts     = agora
-    st.query_params.clear()
     st.rerun()
-
-st.markdown("### Camera - Leitura Automatica")
-st.caption("Aponte a camera traseira para o QR Code. O registro e automatico.")
-
-# Renderiza o componente de camera (HTML puro, sem emojis)
-components.html(CAMERA_HTML, height=440, scrolling=False)
-
-# Listener JS que captura postMessage do iframe e redireciona para query_params
-st.components.v1.html("""
-<script>
-window.addEventListener('message', function(e) {
-    if (e.data && e.data.type === 'qr_code') {
-        var url = new URL(window.parent.location.href);
-        url.searchParams.set('qr', e.data.data);
-        window.parent.location.href = url.toString();
-    }
-});
-</script>
-""", height=0)
 
 # Exibe feedback
 if st.session_state.feedback_status == "ok":
@@ -492,7 +379,7 @@ if st.session_state.feedback_status == "ok":
         unsafe_allow_html=True)
 elif st.session_state.feedback_status == "duplicado":
     st.markdown(
-        f'<div class="registro-aviso">Atencao: {st.session_state.feedback_msg}</div>',
+        f'<div class="registro-aviso">Ja registrado: {st.session_state.feedback_msg}</div>',
         unsafe_allow_html=True)
 elif st.session_state.feedback_status in ("bloqueado", "erro"):
     st.markdown(
