@@ -12,6 +12,8 @@ from pyzbar.pyzbar import decode
 from PIL import Image, ImageEnhance, ImageFilter
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 st.set_page_config(
     page_title="CCB Musical — Check-in",
@@ -577,6 +579,175 @@ def montar_relatorio_geral(df_pres, df_participantes, total_reunioes):
     return rel.sort_values(["Presencas","Nome"], ascending=[False,True]).reset_index(drop=True)
 
 
+# ════════════════════ GRÁFICOS ════════════════════
+CORES_GRAFICOS = [
+    "#6366f1","#8b5cf6","#06b6d4","#10b981","#f59e0b",
+    "#ef4444","#ec4899","#3b82f6","#84cc16","#f97316",
+]
+
+LAYOUT_BASE = dict(
+    paper_bgcolor="rgba(13,21,48,0.0)",
+    plot_bgcolor="rgba(13,21,48,0.0)",
+    font=dict(color="#e2e8f0", family="Inter, sans-serif"),
+    margin=dict(t=60, b=40, l=20, r=20),
+)
+
+def grafico_barras_ranking(df_rel, data_ini, data_fim):
+    """Barras verticais — top membros por presenças, colorido por cargo."""
+    df_plot = df_rel[df_rel["Presencas"] > 0].copy()
+    if df_plot.empty:
+        return None
+    # Abreviar nomes longos para o eixo X
+    df_plot["NomeAbrev"] = df_plot["Nome"].apply(
+        lambda n: " ".join(n.split()[:2]) if len(n) > 18 else n
+    )
+    fig = px.bar(
+        df_plot,
+        x="NomeAbrev",
+        y="Presencas",
+        color="Cargo",
+        text="Presencas",
+        color_discrete_sequence=CORES_GRAFICOS,
+        labels={"NomeAbrev": "Membro", "Presencas": "Presenças", "Cargo": "Cargo"},
+        title=(
+            f"🏆 Ranking de Presenças"
+            f"<br><span style='font-size:13px;font-weight:normal;color:#94a3b8'>"
+            f"{data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}</span>"
+        ),
+    )
+    fig.update_traces(
+        textposition="outside",
+        cliponaxis=False,
+        marker_line_width=0,
+        textfont=dict(size=11, color="#e2e8f0"),
+    )
+    fig.update_layout(
+        **LAYOUT_BASE,
+        height=480,
+        xaxis=dict(
+            title="Membro",
+            tickangle=-40,
+            tickfont=dict(size=10),
+            gridcolor="rgba(99,102,241,0.12)",
+            linecolor="rgba(99,102,241,0.3)",
+        ),
+        yaxis=dict(
+            title="Presenças",
+            gridcolor="rgba(99,102,241,0.12)",
+            linecolor="rgba(99,102,241,0.3)",
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom", y=1.06,
+            xanchor="center", x=0.5,
+            font=dict(size=11),
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        bargap=0.3,
+    )
+    return fig
+
+
+def graficos_pizza(df_rel):
+    """Dois gráficos de pizza lado a lado: por Cargo e por Localidade."""
+    rc_g = df_rel.groupby("Cargo")["Presencas"].sum().reset_index()
+    rl_g = df_rel.groupby("Localidade")["Presencas"].sum().reset_index()
+
+    fig = make_subplots(
+        rows=1, cols=2,
+        specs=[[{"type": "pie"}, {"type": "pie"}]],
+        subplot_titles=("🎸 Presenças por Cargo", "📍 Presenças por Localidade"),
+    )
+
+    fig.add_trace(
+        go.Pie(
+            labels=rc_g["Cargo"],
+            values=rc_g["Presencas"],
+            hole=0.38,
+            marker=dict(colors=CORES_GRAFICOS, line=dict(color="#0d1530", width=2)),
+            textinfo="label+percent",
+            textfont=dict(size=12),
+            hovertemplate="<b>%{label}</b><br>Presenças: %{value}<br>%{percent}<extra></extra>",
+        ),
+        row=1, col=1,
+    )
+
+    fig.add_trace(
+        go.Pie(
+            labels=rl_g["Localidade"],
+            values=rl_g["Presencas"],
+            hole=0.38,
+            marker=dict(colors=CORES_GRAFICOS[::-1], line=dict(color="#0d1530", width=2)),
+            textinfo="label+percent",
+            textfont=dict(size=12),
+            hovertemplate="<b>%{label}</b><br>Presenças: %{value}<br>%{percent}<extra></extra>",
+        ),
+        row=1, col=2,
+    )
+
+    fig.update_layout(
+        **LAYOUT_BASE,
+        height=420,
+        title=dict(
+            text="Distribuição de Presenças<br><span style='font-size:13px;font-weight:normal;color:#94a3b8'>Por Cargo e Localidade</span>",
+            x=0.5,
+            font=dict(size=16, color="#e2e8f0"),
+        ),
+        legend=dict(
+            orientation="v",
+            x=1.02, y=0.5,
+            font=dict(size=11),
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        uniformtext_minsize=10,
+        uniformtext_mode="hide",
+    )
+    fig.update_annotations(font_size=13, font_color="#a5b4fc")
+    return fig
+
+
+def grafico_linha_mensal(df_pres_p, data_ini, data_fim):
+    """Linha de presenças totais por mês."""
+    df_mes = df_pres_p.copy()
+    df_mes["data_registro"] = pd.to_datetime(df_mes["data_registro"], errors="coerce")
+    df_mes = df_mes.dropna(subset=["data_registro"])
+    if df_mes.empty:
+        return None
+    df_mes["Mes"] = df_mes["data_registro"].dt.to_period("M").astype(str)
+    mensal = df_mes.groupby("Mes").size().reset_index(name="Presencas")
+    fig = px.line(
+        mensal, x="Mes", y="Presencas",
+        markers=True,
+        labels={"Mes": "Mês", "Presencas": "Presenças"},
+        title=(
+            f"📈 Evolução Mensal de Presenças"
+            f"<br><span style='font-size:13px;font-weight:normal;color:#94a3b8'>"
+            f"{data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}</span>"
+        ),
+    )
+    fig.update_traces(
+        line=dict(color="#6366f1", width=3),
+        marker=dict(color="#8b5cf6", size=9, line=dict(color="#c7d2fe", width=2)),
+        fill="tozeroy",
+        fillcolor="rgba(99,102,241,0.12)",
+    )
+    fig.update_layout(
+        **LAYOUT_BASE,
+        height=360,
+        xaxis=dict(
+            title="Mês",
+            gridcolor="rgba(99,102,241,0.12)",
+            linecolor="rgba(99,102,241,0.3)",
+        ),
+        yaxis=dict(
+            title="Presenças",
+            gridcolor="rgba(99,102,241,0.12)",
+            linecolor="rgba(99,102,241,0.3)",
+        ),
+    )
+    return fig
+
+
 # ════════════════════ INIT SESSION STATE ════════════════════
 df_participantes = carregar_dados_participantes()
 if not df_participantes.empty:
@@ -632,7 +803,6 @@ if st.session_state.pagina == "home":
     reunioes_hoje    = [r for r in reunioes if r.get("data")==hoje]
     reunioes_futuras = [r for r in reunioes if r.get("data","")>hoje]
 
-    # ── BOTÕES PRINCIPAIS (4 colunas) ──
     sec("⚡", "AÇÕES RÁPIDAS")
     col_a, col_b, col_c, col_d = st.columns(4)
     with col_a:
@@ -650,7 +820,6 @@ if st.session_state.pagina == "home":
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── REUNIÕES DE HOJE ──
     if reunioes_hoje:
         sec("📅", "REUNIÕES DE HOJE — CLIQUE PARA INICIAR")
         cols = st.columns(min(len(reunioes_hoje), 3))
@@ -1146,7 +1315,6 @@ elif st.session_state.pagina == "relatorios_gerais":
     st.markdown("<br>", unsafe_allow_html=True)
     sec("📊", "RELATÓRIOS GERAIS")
 
-    # ── Período padrão = ano atual ──
     ano_atual = date.today().year
     periodo = st.date_input(
         "📅 Selecione o período",
@@ -1201,50 +1369,35 @@ elif st.session_state.pagina == "relatorios_gerais":
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Gráfico: Ranking por membro ──
-    sec("🏆", "RANKING DE PRESENÇAS — TODOS OS MEMBROS")
+    # ── GRÁFICO 1: Barras verticais — Ranking ──
+    sec("🏆", "RANKING DE PRESENÇAS")
     if not df_rel.empty:
-        fig1 = px.bar(
-            df_rel,
-            x="Nome",
-            y="Presencas",
-            color="Cargo",
-            title=f"Presenças por membro ({data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')})",
-            labels={"Nome": "Membro", "Presencas": "Presenças", "Cargo": "Cargo"},
-            text="Presencas",
-        )
-        fig1.update_traces(textposition="outside", cliponaxis=False)
-        fig1.update_layout(
-            xaxis_tickangle=-45,
-            xaxis_title="Membro",
-            yaxis_title="Presenças",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            height=500,
-        )
-        st.plotly_chart(fig1, use_container_width=True)
-    else:
-        st.info("Sem dados para o gráfico de ranking.")
-
-    # ── Gráfico: Presenças por mês ──
-    sec("📈", "PRESENÇAS POR MÊS")
-    if not df_pres_p.empty and "data_registro" in df_pres_p.columns:
-        df_mes = df_pres_p.copy()
-        df_mes["data_registro"] = pd.to_datetime(df_mes["data_registro"], errors="coerce")
-        df_mes = df_mes.dropna(subset=["data_registro"])
-        if not df_mes.empty:
-            df_mes["Mes"] = df_mes["data_registro"].dt.to_period("M").astype(str)
-            mensal = df_mes.groupby("Mes").size().reset_index(name="Presencas")
-            fig2 = px.line(
-                mensal, x="Mes", y="Presencas",
-                markers=True,
-                title=f"Total de presenças por mês ({data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')})",
-                labels={"Mes": "Mês", "Presencas": "Presenças"},
-            )
-            fig2.update_traces(line_color="#6366f1", marker_color="#8b5cf6", fill="tozeroy", fillcolor="rgba(99,102,241,0.1)")
-            fig2.update_layout(xaxis_title="Mês", yaxis_title="Presenças", height=380)
-            st.plotly_chart(fig2, use_container_width=True)
+        fig_rank = grafico_barras_ranking(df_rel, data_ini, data_fim)
+        if fig_rank:
+            st.plotly_chart(fig_rank, use_container_width=True)
         else:
-            st.info("Sem dados de mês para o período.")
+            st.info("Nenhum membro com presença registrada no período.")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── GRÁFICO 2: Pizzas — Por Cargo e Localidade ──
+    sec("🍕", "DISTRIBUIÇÃO POR CARGO E LOCALIDADE")
+    if not df_rel.empty and df_rel["Presencas"].sum() > 0:
+        fig_pizza = graficos_pizza(df_rel)
+        st.plotly_chart(fig_pizza, use_container_width=True)
+    else:
+        st.info("Sem presenças registradas para gerar o gráfico de distribuição.")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── GRÁFICO 3: Linha mensal ──
+    sec("📈", "EVOLUÇÃO MENSAL")
+    if not df_pres_p.empty and "data_registro" in df_pres_p.columns:
+        fig_linha = grafico_linha_mensal(df_pres_p, data_ini, data_fim)
+        if fig_linha:
+            st.plotly_chart(fig_linha, use_container_width=True)
+        else:
+            st.info("Sem dados mensais para o período.")
     else:
         st.info("Sem registros de presença no período selecionado.")
 
@@ -1264,7 +1417,7 @@ elif st.session_state.pagina == "relatorios_gerais":
     # ── Exportação ──
     if not df_rel.empty:
         sec("📄", "EXPORTAR RELATÓRIO")
-        titulo_rel = f"Relatorio_Geral_{data_ini.strftime('%Y%m%d')}_{data_fim.strftime('%Y%m%d')}"
+        titulo_rel = f"Relatorio_Geral_{data_ini.strftime('%Y%m%d')}_{data_fim.strftime('%d%m%d')}"
         ex1, ex2 = st.columns(2)
         with ex1:
             st.download_button(
