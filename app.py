@@ -11,6 +11,7 @@ from supabase import create_client, Client
 from pyzbar.pyzbar import decode
 from PIL import Image, ImageEnhance, ImageFilter
 import numpy as np
+import plotly.express as px
 
 st.set_page_config(
     page_title="CCB Musical — Check-in",
@@ -268,7 +269,6 @@ def metric_card(valor, label, cor):
     return f'<div class="metric-card mc-{cor}"><p class="metric-value">{valor}</p><p class="metric-label">{label}</p></div>'
 
 def botao_voltar(destino="home", label="⬅  Voltar"):
-    """Renderiza botão de voltar visível e grande."""
     if st.button(label, key=f"voltar_{destino}_{id(destino)}", use_container_width=False):
         st.session_state.pagina = destino
         st.session_state.feedback_status = None
@@ -433,6 +433,38 @@ def gerar_pdf(df_p, rc, rl, titulo):
         pdf.cell(cw[3],8,str(row["Horario"]),1,1)
     return bytes(pdf.output())
 
+def gerar_pdf_relatorio_geral(df_rel, titulo, data_ini, data_fim, total_reunioes, total_presencas):
+    class PDF(FPDF):
+        def header(self):
+            self.set_font("Arial","B",14)
+            self.cell(0,10,tp(f"Relatorio Geral: {titulo}"),0,1,"C")
+            self.set_font("Arial","",10)
+            self.cell(0,6,f"Periodo: {data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}",0,1,"C")
+            self.cell(0,6,f"Gerado em: {obter_hora_atual().strftime('%d/%m/%Y %H:%M')}",0,1,"C")
+            self.ln(4)
+    def tp(t):
+        try: return str(t).encode("latin-1","replace").decode("latin-1")
+        except: return str(t)
+    pdf=PDF(); pdf.add_page()
+    pdf.set_font("Arial","B",12); pdf.cell(0,8,"RESUMO DO PERIODO",ln=True)
+    pdf.set_font("Arial",size=10)
+    pdf.cell(0,6,f"  Total de Reunioes: {total_reunioes}",ln=True)
+    pdf.cell(0,6,f"  Total de Presencas: {total_presencas}",ln=True)
+    pdf.cell(0,6,f"  Total de Participantes: {len(df_rel)}",ln=True)
+    pdf.ln(4)
+    pdf.set_font("Arial","B",12); pdf.cell(0,8,"RANKING DE PRESENCAS",ln=True)
+    pdf.set_fill_color(200,220,255); pdf.set_font("Arial","B",8)
+    cw2=[8,60,40,20,18]
+    for h2,w2 in zip(["#","Nome","Cargo","Presencas","Freq%"],cw2): pdf.cell(w2,8,h2,1,0,"C",1)
+    pdf.ln(); pdf.set_font("Arial",size=7)
+    for i,(_,row) in enumerate(df_rel.iterrows(),1):
+        pdf.cell(cw2[0],8,str(i),1)
+        pdf.cell(cw2[1],8,tp(str(row["Nome"])[:38]),1)
+        pdf.cell(cw2[2],8,tp(str(row["Cargo"])[:25]),1)
+        pdf.cell(cw2[3],8,str(int(row["Presencas"])),1,0,"C")
+        pdf.cell(cw2[4],8,f"{row['Frequencia_%']:.1f}%",1,1,"C")
+    return bytes(pdf.output())
+
 def gerar_excel(df_p, rc, rl, titulo):
     wb=Workbook(); wb.remove(wb.active)
     hf=Font(name="Calibri",size=12,bold=True,color="FFFFFF")
@@ -464,6 +496,86 @@ def gerar_excel(df_p, rc, rl, titulo):
         wl.column_dimensions[col].width=w2
     eb=BytesIO(); wb.save(eb); eb.seek(0); return eb.getvalue()
 
+def gerar_excel_relatorio_geral(df_rel, titulo, data_ini, data_fim, total_reunioes, total_presencas):
+    wb=Workbook(); wb.remove(wb.active)
+    hf=Font(name="Calibri",size=11,bold=True,color="FFFFFF")
+    hfill=PatternFill(start_color="1F4E78",end_color="1F4E78",fill_type="solid")
+    ha=Alignment(horizontal="center",vertical="center",wrap_text=True)
+    bd=Border(left=Side(style="thin"),right=Side(style="thin"),top=Side(style="thin"),bottom=Side(style="thin"))
+    ws=wb.create_sheet("Relatorio Geral",0)
+    ws["A1"]=f"Relatorio Geral — {titulo}"
+    ws["A1"].font=Font(name="Calibri",size=14,bold=True)
+    ws.merge_cells("A1:F1")
+    ws["A2"]=f"Periodo: {data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}"
+    ws.merge_cells("A2:F2")
+    ws["A3"]=f"Gerado em: {obter_hora_atual().strftime('%d/%m/%Y %H:%M')}"
+    ws.merge_cells("A3:F3")
+    ws.append([])
+    ws.append(["Total Reunioes",total_reunioes,"Total Presencas",total_presencas,"Participantes",len(df_rel)])
+    ws.append([])
+    headers=["#","ID","Nome","Cargo","Localidade","Presencas","Frequencia %"]
+    ws.append(headers)
+    for cell in ws[ws.max_row]: cell.font=hf;cell.fill=hfill;cell.alignment=ha;cell.border=bd
+    for i,(_,row) in enumerate(df_rel.iterrows(),1):
+        ws.append([i,str(row["ID"]),row["Nome"],row["Cargo"],row["Localidade"],int(row["Presencas"]),float(row["Frequencia_%"])])
+        for cell in ws[ws.max_row]: cell.border=bd
+    for col,w2 in zip(["A","B","C","D","E","F","G"],[5,10,35,22,25,12,14]):
+        ws.column_dimensions[col].width=w2
+    eb=BytesIO(); wb.save(eb); eb.seek(0); return eb.getvalue()
+
+
+# ════════════════════ RELATÓRIO GERAL — FUNÇÕES ════════════════════
+def carregar_presencas_periodo(data_ini, data_fim):
+    try:
+        res = (
+            supabase_client.table("presencas")
+            .select("*")
+            .gte("data_registro", f"{data_ini}T00:00:00")
+            .lte("data_registro", f"{data_fim}T23:59:59")
+            .execute()
+        )
+        if not res.data:
+            return pd.DataFrame()
+        return pd.DataFrame(res.data)
+    except Exception as e:
+        st.error(f"Erro ao carregar presenças do período: {e}")
+        return pd.DataFrame()
+
+def carregar_reunioes_periodo(data_ini, data_fim):
+    try:
+        res = (
+            supabase_client.table("reunioes")
+            .select("*")
+            .gte("data", str(data_ini))
+            .lte("data", str(data_fim))
+            .execute()
+        )
+        return pd.DataFrame(res.data) if res.data else pd.DataFrame()
+    except Exception as e:
+        st.error(f"Erro ao carregar reuniões do período: {e}")
+        return pd.DataFrame()
+
+def montar_relatorio_geral(df_pres, df_participantes, total_reunioes):
+    if df_participantes.empty:
+        return pd.DataFrame()
+    base = df_participantes[["ID","Nome","Cargo","Localidade"]].copy()
+    if df_pres.empty:
+        base["Presencas"] = 0
+        base["Frequencia_%"] = 0.0
+        return base.sort_values(["Presencas","Nome"], ascending=[False,True]).reset_index(drop=True)
+    freq = (
+        df_pres.groupby(["id_participante","nome","cargo","localidade"])
+        .size()
+        .reset_index(name="Presencas")
+        .rename(columns={"id_participante":"ID","nome":"Nome","cargo":"Cargo","localidade":"Localidade"})
+    )
+    rel = base.merge(freq[["ID","Presencas"]], on="ID", how="left")
+    rel["Presencas"] = rel["Presencas"].fillna(0).astype(int)
+    rel["Frequencia_%"] = rel["Presencas"].apply(
+        lambda x: round((x / total_reunioes) * 100, 2) if total_reunioes > 0 else 0.0
+    )
+    return rel.sort_values(["Presencas","Nome"], ascending=[False,True]).reset_index(drop=True)
+
 
 # ════════════════════ INIT SESSION STATE ════════════════════
 df_participantes = carregar_dados_participantes()
@@ -475,21 +587,21 @@ reunioes = carregar_reunioes()
 hoje = date.today().strftime("%Y-%m-%d")
 
 defaults = {
-    "pagina":           "home",      # home | checkin | nova_reuniao | editar_reuniao | lista
+    "pagina":            "home",
     "active_meeting_id": None,
-    "lista_presenca":   pd.DataFrame(columns=["ID","Nome","Cargo","Localidade","Horario"]),
-    "feedback_status":  None,
-    "feedback_msg":     "",
-    "ultimo_registrado":None,
-    "modo_continuo":    True,
-    "ultima_foto_hash": None,
-    "reuniao_edit_id":  None,
+    "lista_presenca":    pd.DataFrame(columns=["ID","Nome","Cargo","Localidade","Horario"]),
+    "feedback_status":   None,
+    "feedback_msg":      "",
+    "ultimo_registrado": None,
+    "modo_continuo":     True,
+    "ultima_foto_hash":  None,
+    "reuniao_edit_id":   None,
 }
 for k,v in defaults.items():
     if k not in st.session_state: st.session_state[k]=v
 
 
-# ════════════════════ SIDEBAR (auxiliar — não é a navegação principal) ════════════════════
+# ════════════════════ SIDEBAR ════════════════════
 with st.sidebar:
     st.markdown('<div style="text-align:center;padding:10px 0 4px"><span style="font-size:2rem">🎵</span><br><span style="color:#a5b4fc;font-weight:800">CCB Musical</span></div>', unsafe_allow_html=True)
     st.caption("Menu auxiliar")
@@ -500,6 +612,8 @@ with st.sidebar:
         st.session_state.pagina = "nova_reuniao"; st.rerun()
     if st.button("📋  Lista de Presenças", use_container_width=True):
         st.session_state.pagina = "lista"; st.rerun()
+    if st.button("📊  Relatórios Gerais", use_container_width=True):
+        st.session_state.pagina = "relatorios_gerais"; st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -518,9 +632,9 @@ if st.session_state.pagina == "home":
     reunioes_hoje    = [r for r in reunioes if r.get("data")==hoje]
     reunioes_futuras = [r for r in reunioes if r.get("data","")>hoje]
 
-    # ── BOTÕES DE AÇÃO PRINCIPAIS ──
+    # ── BOTÕES PRINCIPAIS (4 colunas) ──
     sec("⚡", "AÇÕES RÁPIDAS")
-    col_a, col_b, col_c = st.columns(3)
+    col_a, col_b, col_c, col_d = st.columns(4)
     with col_a:
         if st.button("➕\n\nNova Reunião", use_container_width=True, type="primary"):
             st.session_state.pagina = "nova_reuniao"; st.rerun()
@@ -530,6 +644,9 @@ if st.session_state.pagina == "home":
     with col_c:
         if st.button("📋\n\nVer Presenças", use_container_width=True):
             st.session_state.pagina = "lista"; st.rerun()
+    with col_d:
+        if st.button("📊\n\nRelatórios Gerais", use_container_width=True):
+            st.session_state.pagina = "relatorios_gerais"; st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -593,7 +710,6 @@ if st.session_state.pagina == "home":
 # ═══════════════════════════════════════════════════════════
 elif st.session_state.pagina == "nova_reuniao":
 
-    # Botão voltar no topo
     if st.button("⬅  Voltar ao Início", key="voltar_nova"):
         st.session_state.pagina = "home"; st.rerun()
 
@@ -650,11 +766,10 @@ elif st.session_state.pagina == "editar_reuniao":
 
     reunioes_visiveis = [r for r in reunioes if r.get("data","")>=hoje]
     if not reunioes_visiveis:
-        reunioes_visiveis = reunioes  # mostra todas se não houver futuras
+        reunioes_visiveis = reunioes
 
     if not reunioes_visiveis:
-        st.info("Nenhuma reunião cadastrada.")
-        st.stop()
+        st.info("Nenhuma reunião cadastrada."); st.stop()
 
     labels = [label_reuniao(r) for r in reunioes_visiveis]
     ids    = [r["id"] for r in reunioes_visiveis]
@@ -726,7 +841,6 @@ elif st.session_state.pagina == "editar_reuniao":
 # ═══════════════════════════════════════════════════════════
 elif st.session_state.pagina == "checkin":
 
-    # Valida reunião ativa
     reuniao_ativa = None
     if st.session_state.active_meeting_id:
         for r in reunioes:
@@ -739,7 +853,6 @@ elif st.session_state.pagina == "checkin":
             st.session_state.pagina="home"; st.rerun()
         st.stop()
 
-    # ── Barra superior: Voltar + Nome da reunião ──
     col_back, col_titulo = st.columns([1, 5])
     with col_back:
         if st.button("⬅  Voltar", key="volt_checkin", use_container_width=True):
@@ -775,7 +888,6 @@ elif st.session_state.pagina == "checkin":
         unsafe_allow_html=True
     )
 
-    # Botões de navegação entre abas (substitui sidebar)
     sec("🧭", "NAVEGAR")
     nb1, nb2, nb3, nb4 = st.columns(4)
     with nb1:
@@ -801,7 +913,6 @@ elif st.session_state.pagina == "checkin":
         f"📋  Presentes ({total_pres})",
     ])
 
-    # ── ABA CÂMERA ──
     with aba_cam:
         col_cam, col_result = st.columns([5, 4], gap="large")
         with col_cam:
@@ -862,7 +973,6 @@ elif st.session_state.pagina == "checkin":
                 ult = st.session_state.lista_presenca.iloc[-1]
                 st.markdown(f'<div class="membro-card" style="margin-top:16px"><p class="m-nome" style="color:#94a3b8;font-size:0.8rem">⏱ Último registrado</p><p class="m-nome">{ult["Nome"]}</p><p class="m-det">{ult["Horario"]}</p></div>', unsafe_allow_html=True)
 
-    # ── ABA MANUAL ──
     with aba_manual:
         tab_cod, tab_nome = st.tabs(["🔢 Pelo Código", "🔍 Pelo Nome"])
         with tab_cod:
@@ -905,7 +1015,6 @@ elif st.session_state.pagina == "checkin":
                     else:
                         st.info("🔍 Nenhum participante encontrado.")
 
-    # ── ABA LISTA ──
     with aba_lista_pres:
         if not st.session_state.lista_presenca.empty:
             df_pres = st.session_state.lista_presenca
@@ -966,7 +1075,6 @@ elif st.session_state.pagina == "checkin":
                 st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_ativa["id"])
                 st.rerun()
 
-    # Botão Voltar no FINAL da tela de check-in também
     st.markdown("---")
     if st.button("⬅  Voltar ao Início", key="volt_checkin_bottom", use_container_width=True):
         st.session_state.pagina = "home"; st.rerun()
@@ -1023,5 +1131,160 @@ elif st.session_state.pagina == "lista":
                                use_container_width=True)
     else:
         st.info("Nenhuma presença registrada nesta reunião.")
+
+    st.stop()
+
+
+# ═══════════════════════════════════════════════════════════
+#  PÁGINA: RELATÓRIOS GERAIS
+# ═══════════════════════════════════════════════════════════
+elif st.session_state.pagina == "relatorios_gerais":
+
+    if st.button("⬅  Voltar ao Início", key="volt_relatorios"):
+        st.session_state.pagina = "home"; st.rerun()
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    sec("📊", "RELATÓRIOS GERAIS")
+
+    # ── Período padrão = ano atual ──
+    ano_atual = date.today().year
+    periodo = st.date_input(
+        "📅 Selecione o período",
+        value=(date(ano_atual, 1, 1), date(ano_atual, 12, 31)),
+        format="DD/MM/YYYY",
+        help="Selecione data inicial e data final"
+    )
+
+    if not periodo or len(periodo) != 2:
+        st.info("ℹ️ Selecione a data inicial e a data final para carregar o relatório.")
+        st.stop()
+
+    data_ini, data_fim = periodo
+
+    with st.spinner("Carregando dados do período..."):
+        df_reunioes_p = carregar_reunioes_periodo(data_ini, data_fim)
+        df_pres_p     = carregar_presencas_periodo(data_ini, data_fim)
+
+    total_reunioes  = len(df_reunioes_p)
+    total_presencas = len(df_pres_p)
+    df_rel = montar_relatorio_geral(df_pres_p, df_participantes, total_reunioes)
+
+    # ── Métricas ──
+    m1, m2, m3, m4 = st.columns(4)
+    with m1: st.metric("📅 Reuniões", total_reunioes)
+    with m2: st.metric("✅ Presenças", total_presencas)
+    with m3: st.metric("👥 Participantes", len(df_participantes))
+    with m4:
+        media = round(df_rel["Frequencia_%"].mean(), 1) if not df_rel.empty else 0.0
+        st.metric("📈 Freq. Média", f"{media}%")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Lista completa ──
+    sec("👥", "LISTA COMPLETA DE MEMBROS")
+    if not df_rel.empty:
+        st.dataframe(
+            df_rel[["ID","Nome","Cargo","Localidade","Presencas","Frequencia_%"]],
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "ID":           st.column_config.TextColumn("ID"),
+                "Nome":         st.column_config.TextColumn("Nome"),
+                "Cargo":        st.column_config.TextColumn("Cargo"),
+                "Localidade":   st.column_config.TextColumn("Localidade"),
+                "Presencas":    st.column_config.NumberColumn("Presenças"),
+                "Frequencia_%": st.column_config.NumberColumn("Frequência %", format="%.1f"),
+            }
+        )
+    else:
+        st.info("Nenhum dado encontrado para o período selecionado.")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Gráfico: Ranking por membro ──
+    sec("🏆", "RANKING DE PRESENÇAS — TODOS OS MEMBROS")
+    if not df_rel.empty:
+        fig1 = px.bar(
+            df_rel,
+            x="Nome",
+            y="Presencas",
+            color="Cargo",
+            title=f"Presenças por membro ({data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')})",
+            labels={"Nome": "Membro", "Presencas": "Presenças", "Cargo": "Cargo"},
+            text="Presencas",
+        )
+        fig1.update_traces(textposition="outside", cliponaxis=False)
+        fig1.update_layout(
+            xaxis_tickangle=-45,
+            xaxis_title="Membro",
+            yaxis_title="Presenças",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            height=500,
+        )
+        st.plotly_chart(fig1, use_container_width=True)
+    else:
+        st.info("Sem dados para o gráfico de ranking.")
+
+    # ── Gráfico: Presenças por mês ──
+    sec("📈", "PRESENÇAS POR MÊS")
+    if not df_pres_p.empty and "data_registro" in df_pres_p.columns:
+        df_mes = df_pres_p.copy()
+        df_mes["data_registro"] = pd.to_datetime(df_mes["data_registro"], errors="coerce")
+        df_mes = df_mes.dropna(subset=["data_registro"])
+        if not df_mes.empty:
+            df_mes["Mes"] = df_mes["data_registro"].dt.to_period("M").astype(str)
+            mensal = df_mes.groupby("Mes").size().reset_index(name="Presencas")
+            fig2 = px.line(
+                mensal, x="Mes", y="Presencas",
+                markers=True,
+                title=f"Total de presenças por mês ({data_ini.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')})",
+                labels={"Mes": "Mês", "Presencas": "Presenças"},
+            )
+            fig2.update_traces(line_color="#6366f1", marker_color="#8b5cf6", fill="tozeroy", fillcolor="rgba(99,102,241,0.1)")
+            fig2.update_layout(xaxis_title="Mês", yaxis_title="Presenças", height=380)
+            st.plotly_chart(fig2, use_container_width=True)
+        else:
+            st.info("Sem dados de mês para o período.")
+    else:
+        st.info("Sem registros de presença no período selecionado.")
+
+    # ── Resumo por Cargo e Localidade ──
+    if not df_rel.empty:
+        sec("📋", "RESUMO POR CARGO E LOCALIDADE")
+        rc_g = df_rel.groupby("Cargo")["Presencas"].sum().sort_values(ascending=False).reset_index()
+        rl_g = df_rel.groupby("Localidade")["Presencas"].sum().sort_values(ascending=False).reset_index()
+        r1c, r2c = st.columns(2)
+        with r1c:
+            st.markdown("**🎸 Por Cargo**")
+            st.dataframe(rc_g, hide_index=True, use_container_width=True)
+        with r2c:
+            st.markdown("**📍 Por Localidade**")
+            st.dataframe(rl_g, hide_index=True, use_container_width=True)
+
+    # ── Exportação ──
+    if not df_rel.empty:
+        sec("📄", "EXPORTAR RELATÓRIO")
+        titulo_rel = f"Relatorio_Geral_{data_ini.strftime('%Y%m%d')}_{data_fim.strftime('%Y%m%d')}"
+        ex1, ex2 = st.columns(2)
+        with ex1:
+            st.download_button(
+                "⬇️ Baixar Excel", icon="📊",
+                data=gerar_excel_relatorio_geral(df_rel, titulo_rel, data_ini, data_fim, total_reunioes, total_presencas),
+                file_name=f"{titulo_rel}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        with ex2:
+            st.download_button(
+                "⬇️ Baixar PDF", icon="📄",
+                data=gerar_pdf_relatorio_geral(df_rel, titulo_rel, data_ini, data_fim, total_reunioes, total_presencas),
+                file_name=f"{titulo_rel}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
+
+    st.markdown("---")
+    if st.button("⬅  Voltar ao Início", key="volt_relatorios_bottom", use_container_width=True):
+        st.session_state.pagina = "home"; st.rerun()
 
     st.stop()
