@@ -11,6 +11,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import json
 import os
+from supabase import create_client, Client
 try:
     from streamlit_qrcode_scanner import qrcode_scanner
 except ImportError:
@@ -19,9 +20,14 @@ except ImportError:
 # --- Configuração da Página ---
 st.set_page_config(page_title="Check-in QR Code", layout="wide")
 
-MEETINGS_FILE = "reunioes.json"
-PRESENCE_FILE = "presencas.csv"
-LEGACY_CONFIG_FILE = "reuniao_config.json"
+# --- Supabase ---
+@st.cache_resource
+def get_supabase() -> Client:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+supabase_client = get_supabase()
 
 # --- Funções de Data/Hora ---
 
@@ -37,64 +43,56 @@ def _parse_time(hhmm_str: str) -> time:
 
 # --- Dados (Participantes) ---
 
-@st.cache_data
+@st.cache_data(ttl=300)
 def carregar_dados_participantes():
     try:
-        df = pd.read_csv("participantes.csv", dtype=str)
-        df.columns = df.columns.str.strip()
-        return df
-    except FileNotFoundError:
-        st.error("Arquivo 'participantes.csv' não encontrado no repositório.")
+        res = supabase_client.table("participantes").select("*").execute()
+        if res.data:
+            df = pd.DataFrame(res.data)
+            df.columns = df.columns.str.strip()
+            return df
+        return pd.DataFrame(columns=["id", "nome", "cargo", "localidade"])
+    except Exception as e:
+        st.error(f"Erro ao carregar participantes: {e}")
         return pd.DataFrame()
 
 # --- Persistência de Presença ---
 
-def inicializar_arquivo_presenca():
-    if not os.path.exists(PRESENCE_FILE):
-        df = pd.DataFrame(columns=["meeting_id", "id_participante", "nome", "cargo", "localidade", "horario", "data_registro"])
-        df.to_csv(PRESENCE_FILE, index=False)
-
 def carregar_presencas_reuniao(meeting_id):
-    inicializar_arquivo_presenca()
     try:
-        df = pd.read_csv(PRESENCE_FILE, dtype=str)
-        if df.empty:
+        res = supabase_client.table("presencas").select("*").eq("meeting_id", str(meeting_id)).execute()
+        if not res.data:
             return pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
-        
-        df_reuniao = df[df["meeting_id"] == str(meeting_id)]
-        
-        df_exibicao = df_reuniao.rename(columns={
+        df = pd.DataFrame(res.data)
+        df = df.rename(columns={
             "id_participante": "ID",
             "nome": "Nome",
             "cargo": "Cargo",
             "localidade": "Localidade",
             "horario": "Horario"
         })
-        return df_exibicao[["ID", "Nome", "Cargo", "Localidade", "Horario"]]
+        return df[["ID", "Nome", "Cargo", "Localidade", "Horario"]]
     except Exception as e:
         st.error(f"Erro ao carregar presenças: {e}")
         return pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
 
 def salvar_registro_presenca_csv(meeting_id, dados_participante):
-    inicializar_arquivo_presenca()
-    novo_registro = {
-        "meeting_id": str(meeting_id),
-        "id_participante": str(dados_participante["ID"]),
-        "nome": dados_participante["Nome"],
-        "cargo": dados_participante["Cargo"],
-        "localidade": dados_participante["Localidade"],
-        "horario": dados_participante["Horario"],
-        "data_registro": obter_hora_atual().isoformat()
-    }
-    df_novo = pd.DataFrame([novo_registro])
-    df_novo.to_csv(PRESENCE_FILE, mode='a', header=False, index=False)
+    try:
+        supabase_client.table("presencas").insert({
+            "meeting_id": str(meeting_id),
+            "id_participante": str(dados_participante["ID"]),
+            "nome": dados_participante["Nome"],
+            "cargo": dados_participante["Cargo"],
+            "localidade": dados_participante["Localidade"],
+            "horario": dados_participante["Horario"],
+            "data_registro": obter_hora_atual().isoformat()
+        }).execute()
+    except Exception as e:
+        st.error(f"Erro ao salvar presença: {e}")
 
 def limpar_presencas_reuniao_csv(meeting_id):
-    inicializar_arquivo_presenca()
     try:
-        df = pd.read_csv(PRESENCE_FILE, dtype=str)
-        df_novo = df[df["meeting_id"] != str(meeting_id)]
-        df_novo.to_csv(PRESENCE_FILE, index=False)
+        supabase_client.table("presencas").delete().eq("meeting_id", str(meeting_id)).execute()
         return True
     except Exception as e:
         st.error(f"Erro ao limpar presenças: {e}")
@@ -103,75 +101,48 @@ def limpar_presencas_reuniao_csv(meeting_id):
 # --- Reuniões (agenda) ---
 
 def carregar_reunioes():
-    if os.path.exists(MEETINGS_FILE):
-        try:
-            with open(MEETINGS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, list):
-                return data
-        except Exception:
-            pass
-    return []
+    try:
+        res = supabase_client.table("reunioes").select("*").order("data").execute()
+        reunioes = res.data or []
+        for r in reunioes:
+            if isinstance(r.get("filtro_valores"), str):
+                try:
+                    r["filtro_valores"] = json.loads(r["filtro_valores"])
+                except Exception:
+                    r["filtro_valores"] = []
+            elif r.get("filtro_valores") is None:
+                r["filtro_valores"] = []
+        return reunioes
+    except Exception as e:
+        st.error(f"Erro ao carregar reuniões: {e}")
+        return []
 
 def salvar_reunioes(reunioes):
-    with open(MEETINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(reunioes, f, ensure_ascii=False, indent=2)
+    pass  # Não necessário com Supabase (cada operação salva diretamente)
 
 def _gerar_id_reuniao():
     return obter_hora_atual().strftime("%Y%m%d%H%M%S%f")
 
 def migrar_legado_se_precisar(reunioes):
-    if reunioes:
-        return reunioes
-    if not os.path.exists(LEGACY_CONFIG_FILE):
-        return reunioes
-
-    try:
-        with open(LEGACY_CONFIG_FILE, "r", encoding="utf-8") as f:
-            legacy = json.load(f)
-        reunioes.append({
-            "id": _gerar_id_reuniao(),
-            "nome": legacy.get("nome", "Reunião (importada)"),
-            "data": legacy.get("data", str(date.today())),
-            "hora": legacy.get("hora", "19:30"),
-            "filtro_tipo": legacy.get("filtro_tipo", "Todos"),
-            "filtro_valores": legacy.get("filtro_valores", []),
-            "criada_em": obter_hora_atual().isoformat(timespec="seconds")
-        })
-        salvar_reunioes(reunioes)
-        return reunioes
-    except Exception:
-        return reunioes
+    return reunioes  # Migração de legado não necessária com Supabase
 
 def excluir_reuniao(reunioes, reuniao_id):
-    reunioes2 = [r for r in reunioes if r.get("id") != reuniao_id]
-    salvar_reunioes(reunioes2)
-    return reunioes2
+    try:
+        supabase_client.table("reunioes").delete().eq("id", reuniao_id).execute()
+    except Exception as e:
+        st.error(f"Erro ao excluir reunião: {e}")
+    return carregar_reunioes()
 
 def atualizar_ou_criar_reuniao(reunioes, reuniao):
     rid = reuniao.get("id")
     if not rid:
         reuniao["id"] = _gerar_id_reuniao()
         reuniao["criada_em"] = obter_hora_atual().isoformat(timespec="seconds")
-        reunioes.append(reuniao)
-    else:
-        for i, r in enumerate(reunioes):
-            if r.get("id") == rid:
-                reuniao["criada_em"] = r.get("criada_em", reuniao.get("criada_em"))
-                reunioes[i] = reuniao
-                break
-        else:
-            reunioes.append(reuniao)
-
-    def _key(x):
-        try:
-            return (x.get("data", "9999-12-31"), x.get("hora", "23:59"), x.get("nome", ""))
-        except Exception:
-            return ("9999-12-31", "23:59", "")
-
-    reunioes = sorted(reunioes, key=_key)
-    salvar_reunioes(reunioes)
-    return reunioes
+    try:
+        supabase_client.table("reunioes").upsert(reuniao).execute()
+    except Exception as e:
+        st.error(f"Erro ao salvar reunião: {e}")
+    return carregar_reunioes()
 
 def label_reuniao(r):
     return f"{r.get('data','????-??-??')} {r.get('hora','??:??')} — {r.get('nome','(sem nome)')}"
@@ -187,36 +158,31 @@ def filtrar_participantes_convocados(df, reuniao):
     tipo = reuniao.get("filtro_tipo", "Todos")
     valores = reuniao.get("filtro_valores", [])
 
+    # Normaliza nomes de colunas (Supabase retorna minúsculas)
+    col_cargo = "Cargo" if "Cargo" in df.columns else "cargo"
+    col_local = "Localidade" if "Localidade" in df.columns else "localidade"
+    col_nome = "Nome" if "Nome" in df.columns else "nome"
+
     if tipo == "Todos":
         return df
     if tipo == "Por Cargo":
-        return df[df["Cargo"].isin(valores)]
+        return df[df[col_cargo].isin(valores)]
     if tipo == "Por Localidade":
-        return df[df["Localidade"].isin(valores)]
+        return df[df[col_local].isin(valores)]
     if tipo == "Manual":
-        return df[df["Nome"].isin(valores)]
+        return df[df[col_nome].isin(valores)]
     return df
 
-# --- QR (foto fallback) - OTIMIZADO ---
+# --- QR (foto fallback) ---
 
 def processar_qr_code_imagem(imagem):
-    # Lê a imagem em bytes
     bytes_data = imagem.getvalue()
-    # Decodifica para array NumPy
     cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
-    
-    # OTIMIZAÇÃO: Reduz resolução se for muito grande (comum em celulares)
     height, width = cv2_img.shape[:2]
     if width > 1200:
         scale = 1200 / width
-        new_width = 1200
-        new_height = int(height * scale)
-        cv2_img = cv2.resize(cv2_img, (new_width, new_height), interpolation=cv2.INTER_AREA)
-
-    # OTIMIZAÇÃO: Converte para escala de cinza (mais rápido para decodificar)
+        cv2_img = cv2.resize(cv2_img, (1200, int(height * scale)), interpolation=cv2.INTER_AREA)
     gray_img = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2GRAY)
-
-    # Decodifica
     decoded_objects = decode(gray_img)
     if decoded_objects:
         return decoded_objects[0].data.decode("utf-8").strip()
@@ -228,7 +194,7 @@ def gerar_pdf(df_presenca, resumo_cargo, resumo_local, titulo_reuniao):
     class PDF(FPDF):
         def header(self):
             self.set_font("Arial", "B", 14)
-            self.cell(0, 10, f"Relatório: {titulo_reuniao}", 0, 1, "C")
+            self.cell(0, 10, f"Relatorio: {titulo_reuniao}", 0, 1, "C")
             self.set_font("Arial", "", 10)
             self.cell(0, 6, f"Gerado em: {obter_hora_atual().strftime('%d/%m/%Y %H:%M')}", 0, 1, "C")
             self.ln(4)
@@ -245,112 +211,86 @@ def gerar_pdf(df_presenca, resumo_cargo, resumo_local, titulo_reuniao):
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, "RESUMO GERAL", ln=True)
     pdf.set_font("Arial", size=10)
-
     pdf.cell(0, 8, "Por Cargo:", ln=True)
     for cargo, qtd in resumo_cargo.items():
         pdf.cell(0, 6, texto_pdf(f"  - {cargo}: {qtd}"), ln=True)
-
     pdf.ln(4)
     pdf.cell(0, 8, "Por Localidade:", ln=True)
     for local, qtd in resumo_local.items():
         pdf.cell(0, 6, texto_pdf(f"  - {local}: {qtd}"), ln=True)
-
     pdf.ln(8)
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 10, "LISTA DE PRESENTES", ln=True)
-
     pdf.set_fill_color(200, 220, 255)
     pdf.set_font("Arial", "B", 8)
-
     col_w = [60, 50, 50, 30]
     pdf.cell(col_w[0], 8, "Nome", 1, 0, "C", 1)
     pdf.cell(col_w[1], 8, "Cargo", 1, 0, "C", 1)
     pdf.cell(col_w[2], 8, "Localidade", 1, 0, "C", 1)
-    pdf.cell(col_w[3], 8, "Horário", 1, 1, "C", 1)
-
+    pdf.cell(col_w[3], 8, "Horario", 1, 1, "C", 1)
     pdf.set_font("Arial", size=7)
     for _, row in df_presenca.iterrows():
-        nome = str(row["Nome"])[:35]
-        cargo = str(row["Cargo"])[:28]
-        local = str(row["Localidade"])[:28]
-        horario = str(row["Horario"])
-
-        pdf.cell(col_w[0], 8, texto_pdf(nome), 1)
-        pdf.cell(col_w[1], 8, texto_pdf(cargo), 1)
-        pdf.cell(col_w[2], 8, texto_pdf(local), 1)
-        pdf.cell(col_w[3], 8, horario, 1, 1)
-
+        pdf.cell(col_w[0], 8, texto_pdf(str(row["Nome"])[:35]), 1)
+        pdf.cell(col_w[1], 8, texto_pdf(str(row["Cargo"])[:28]), 1)
+        pdf.cell(col_w[2], 8, texto_pdf(str(row["Localidade"])[:28]), 1)
+        pdf.cell(col_w[3], 8, str(row["Horario"]), 1, 1)
     return bytes(pdf.output())
 
 def gerar_excel(df_presenca, resumo_cargo, resumo_local, titulo_reuniao):
     workbook = Workbook()
     workbook.remove(workbook.active)
-
     header_font = Font(name="Calibri", size=12, bold=True, color="FFFFFF")
     header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
     header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     border = Border(left=Side(style="thin"), right=Side(style="thin"), top=Side(style="thin"), bottom=Side(style="thin"))
-
     ws_resumo = workbook.create_sheet("Resumo", 0)
-    ws_resumo["A1"] = f"Relatório: {titulo_reuniao}"
+    ws_resumo["A1"] = f"Relatorio: {titulo_reuniao}"
     ws_resumo["A1"].font = Font(name="Calibri", size=14, bold=True)
     ws_resumo.merge_cells("A1:D1")
-
     ws_resumo["A3"] = "Resumo por Cargo"
     ws_resumo["A3"].font = Font(bold=True)
     ws_resumo.append(["Cargo", "Qtd"])
-
     for cell in ws_resumo[4]:
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = header_alignment
         cell.border = border
-
     for cargo, qtd in resumo_cargo.items():
         ws_resumo.append([cargo, int(qtd)])
         for cell in ws_resumo[ws_resumo.max_row]:
             cell.border = border
-
     ws_resumo.append([])
     ws_resumo.append(["Resumo por Localidade", ""])
     ws_resumo[ws_resumo.max_row][0].font = Font(bold=True)
     ws_resumo.append(["Localidade", "Qtd"])
-
     for cell in ws_resumo[ws_resumo.max_row]:
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = header_alignment
         cell.border = border
-
     for local, qtd in resumo_local.items():
         ws_resumo.append([local, int(qtd)])
         for cell in ws_resumo[ws_resumo.max_row]:
             cell.border = border
-
     ws_resumo.column_dimensions["A"].width = 40
     ws_resumo.column_dimensions["B"].width = 12
-
     ws_lista = workbook.create_sheet("Lista Nominal", 1)
-    headers = ["ID", "Nome", "Cargo", "Localidade", "Horário"]
+    headers = ["ID", "Nome", "Cargo", "Localidade", "Horario"]
     ws_lista.append(headers)
-
     for cell in ws_lista[1]:
         cell.font = header_font
         cell.fill = header_fill
         cell.alignment = header_alignment
         cell.border = border
-
     for r in df_presenca.itertuples(index=False):
         ws_lista.append([r.ID, r.Nome, r.Cargo, r.Localidade, r.Horario])
         for cell in ws_lista[ws_lista.max_row]:
             cell.border = border
-
     ws_lista.column_dimensions["A"].width = 12
     ws_lista.column_dimensions["B"].width = 35
     ws_lista.column_dimensions["C"].width = 20
     ws_lista.column_dimensions["D"].width = 25
     ws_lista.column_dimensions["E"].width = 12
-
     excel_bytes = BytesIO()
     workbook.save(excel_bytes)
     excel_bytes.seek(0)
@@ -359,14 +299,19 @@ def gerar_excel(df_presenca, resumo_cargo, resumo_local, titulo_reuniao):
 # --- Check-in ---
 
 def registrar_presenca(codigo_lido, df_participantes, ids_permitidos, meeting_id):
-    participante = df_participantes[df_participantes["ID"] == codigo_lido]
+    col_id = "ID" if "ID" in df_participantes.columns else "id"
+    col_nome = "Nome" if "Nome" in df_participantes.columns else "nome"
+    col_cargo = "Cargo" if "Cargo" in df_participantes.columns else "cargo"
+    col_local = "Localidade" if "Localidade" in df_participantes.columns else "localidade"
+
+    participante = df_participantes[df_participantes[col_id] == codigo_lido]
 
     if participante.empty:
         st.error(f"❌ Código '{codigo_lido}' não encontrado no banco.")
         return False
 
-    nome = participante.iloc[0]["Nome"]
-    id_p = participante.iloc[0]["ID"]
+    nome = participante.iloc[0][col_nome]
+    id_p = participante.iloc[0][col_id]
 
     if ids_permitidos is not None and id_p not in ids_permitidos:
         st.error(f"⛔ {nome} NÃO consta na convocação desta reunião!")
@@ -374,14 +319,14 @@ def registrar_presenca(codigo_lido, df_participantes, ids_permitidos, meeting_id
 
     if id_p in st.session_state.lista_presenca["ID"].values:
         st.warning(f"⚠️ {nome} já está na lista.")
-        return True # Retorna True para não travar o fluxo
+        return True
 
     hora_registro = obter_hora_atual().strftime("%H:%M:%S")
     novo_registro = {
         "ID": id_p,
         "Nome": nome,
-        "Cargo": participante.iloc[0]["Cargo"],
-        "Localidade": participante.iloc[0]["Localidade"],
+        "Cargo": participante.iloc[0][col_cargo],
+        "Localidade": participante.iloc[0][col_local],
         "Horario": hora_registro,
     }
 
@@ -391,7 +336,7 @@ def registrar_presenca(codigo_lido, df_participantes, ids_permitidos, meeting_id
         [st.session_state.lista_presenca, pd.DataFrame([novo_registro])],
         ignore_index=True,
     )
-    
+
     st.toast(f"✅ {nome} registrado com sucesso!", icon="✅")
     return True
 
@@ -400,6 +345,13 @@ def registrar_presenca(codigo_lido, df_participantes, ids_permitidos, meeting_id
 # ==========================
 
 df_participantes = carregar_dados_participantes()
+
+# Normaliza colunas para maiúsculas (compatibilidade)
+if not df_participantes.empty:
+    col_map = {c: c.capitalize() for c in df_participantes.columns}
+    col_map.update({"id": "ID", "nome": "Nome", "cargo": "Cargo", "localidade": "Localidade"})
+    df_participantes = df_participantes.rename(columns=col_map)
+
 reunioes = migrar_legado_se_precisar(carregar_reunioes())
 
 if "active_meeting_id" not in st.session_state:
@@ -407,7 +359,7 @@ if "active_meeting_id" not in st.session_state:
 
 if "lista_presenca" not in st.session_state:
     st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
-    
+
 if "camera_key" not in st.session_state:
     st.session_state.camera_key = 0
 
@@ -493,13 +445,16 @@ with st.sidebar:
 
         valores = []
         if filtro_tipo == "Por Cargo" and not df_participantes.empty:
-            opcoes = sorted(df_participantes["Cargo"].unique().tolist())
+            col_cargo = "Cargo" if "Cargo" in df_participantes.columns else "cargo"
+            opcoes = sorted(df_participantes[col_cargo].unique().tolist())
             valores = st.multiselect("Cargos", opcoes, default=[v for v in valores_def if v in opcoes])
         elif filtro_tipo == "Por Localidade" and not df_participantes.empty:
-            opcoes = sorted(df_participantes["Localidade"].unique().tolist())
+            col_local = "Localidade" if "Localidade" in df_participantes.columns else "localidade"
+            opcoes = sorted(df_participantes[col_local].unique().tolist())
             valores = st.multiselect("Localidades", opcoes, default=[v for v in valores_def if v in opcoes])
         elif filtro_tipo == "Manual" and not df_participantes.empty:
-            opcoes = sorted(df_participantes["Nome"].unique().tolist())
+            col_nome = "Nome" if "Nome" in df_participantes.columns else "nome"
+            opcoes = sorted(df_participantes[col_nome].unique().tolist())
             valores = st.multiselect("Nomes", opcoes, default=[v for v in valores_def if v in opcoes])
 
         salvar = st.form_submit_button("💾 Salvar")
@@ -538,13 +493,13 @@ if st.session_state.active_meeting_id:
         if r.get("id") == st.session_state.active_meeting_id:
             reuniao_ativa = r
             break
-    
+
     if not reuniao_ativa:
         st.session_state.active_meeting_id = None
         st.rerun()
 
     if st.session_state.lista_presenca.empty:
-         st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_ativa["id"])
+        st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_ativa["id"])
 
 if not reuniao_ativa:
     st.title("📲 Check-in")
@@ -554,32 +509,26 @@ if not reuniao_ativa:
 # --- Check-in ---
 st.title(f"📲 {reuniao_ativa.get('nome')}")
 
-# Definindo variáveis necessárias antes de serem usadas nos Tabs
 convocados_df = filtrar_participantes_convocados(df_participantes, reuniao_ativa)
-ids_permitidos = set(convocados_df["ID"].values.tolist()) if not convocados_df.empty else set()
+col_id = "ID" if "ID" in convocados_df.columns else "id"
+ids_permitidos = set(convocados_df[col_id].values.tolist()) if not convocados_df.empty else set()
 
-# Abas restauradas conforme pedido
 tab_auto, tab_manual = st.tabs(["⚡ Leitura Automática", "📷 Câmera Manual / Foto"])
 
 with tab_auto:
     st.markdown("Aponte a câmera para ler automaticamente.")
-    
-    # Verifica se o componente carregou
     if qrcode_scanner:
-        # Usa o componente original que o usuário gostava
         qr_code_auto = qrcode_scanner(key="scanner_auto")
         if qr_code_auto:
             if registrar_presenca(qr_code_auto, df_participantes, ids_permitidos, reuniao_ativa["id"]):
-                 st.rerun()
+                st.rerun()
     else:
         st.error("Componente de scanner automático não instalado corretamente.")
 
 with tab_manual:
     st.markdown("Recomendado para celulares (Android/iOS) - Compatibilidade Total")
-    # Mantém o modo foto simples e robusto
     key_camera = f"camera_{st.session_state.camera_key}"
     img = st.camera_input("📷 Tirar Foto", key=key_camera)
-
     if img:
         codigo = processar_qr_code_imagem(img)
         if codigo:
@@ -593,38 +542,26 @@ with tab_manual:
 # --- Área de Resultados ---
 if not st.session_state.lista_presenca.empty:
     st.divider()
-    
-    # Resumos Visuais (Restaurado)
     st.markdown("### 📊 Resumo")
     resumo_cargo = st.session_state.lista_presenca["Cargo"].value_counts()
     resumo_local = st.session_state.lista_presenca["Localidade"].value_counts()
-    
     col_r1, col_r2 = st.columns(2)
     with col_r1:
         st.dataframe(resumo_cargo, use_container_width=True)
     with col_r2:
         st.dataframe(resumo_local, use_container_width=True)
-
     st.divider()
-    
-    # Lista Completa (Visível, sem expander)
     st.markdown("### 📝 Lista de Presentes")
-    
-    # Adicionada Localidade de volta na visualização
     st.dataframe(
         st.session_state.lista_presenca[["Nome", "Cargo", "Localidade", "Horario"]],
         use_container_width=True,
         hide_index=True,
     )
-
     st.divider()
-
     colA, colB, colC = st.columns(3)
     nome_arquivo = f"{reuniao_ativa.get('data','')}_{reuniao_ativa.get('hora','')}_{reuniao_ativa.get('nome','reuniao')}".replace(" ", "_")
-    
     with colA:
         if st.button("📄 PDF"):
-            # Recalcula resumos para o relatório
             pdf_data = gerar_pdf(st.session_state.lista_presenca, resumo_cargo, resumo_local, reuniao_ativa.get("nome", "Reunião"))
             st.download_button("Baixar PDF", data=pdf_data, file_name=f"{nome_arquivo}.pdf", mime="application/pdf")
     with colB:
@@ -632,7 +569,7 @@ if not st.session_state.lista_presenca.empty:
             excel_data = gerar_excel(st.session_state.lista_presenca, resumo_cargo, resumo_local, reuniao_ativa.get("nome", "Reunião"))
             st.download_button("Baixar Excel", data=excel_data, file_name=f"{nome_arquivo}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     with colC:
-         if st.button("🗑️ Limpar"):
+        if st.button("🗑️ Limpar"):
             if limpar_presencas_reuniao_csv(reuniao_ativa["id"]):
                 st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
                 st.rerun()
