@@ -16,6 +16,32 @@ from supabase import create_client, Client
 # --- Configuração da Página ---
 st.set_page_config(page_title="Check-in QR Code", layout="wide")
 
+# Injeta CSS para forçar câmera traseira no navegador mobile
+st.markdown("""
+<style>
+/* Força câmera traseira em dispositivos móveis */
+video {
+    object-fit: cover;
+}
+</style>
+<script>
+// Sobrescreve getUserMedia para sempre solicitar câmera traseira
+(function() {
+    const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = function(constraints) {
+        if (constraints && constraints.video) {
+            if (typeof constraints.video === 'object') {
+                constraints.video.facingMode = { ideal: 'environment' };
+            } else {
+                constraints.video = { facingMode: { ideal: 'environment' } };
+            }
+        }
+        return originalGetUserMedia(constraints);
+    };
+})();
+</script>
+""", unsafe_allow_html=True)
+
 # --- Supabase ---
 @st.cache_resource
 def get_supabase() -> Client:
@@ -170,11 +196,9 @@ def processar_qr_code_imagem(imagem):
             scale = 1200 / width
             cv2_img = cv2.resize(cv2_img, (1200, int(height * scale)), interpolation=cv2.INTER_AREA)
         gray_img = cv2.cvtColor(cv2_img, cv2.COLOR_BGR2GRAY)
-        # Tenta decodificar direto
         decoded = decode(gray_img)
         if decoded:
             return decoded[0].data.decode("utf-8").strip()
-        # Segunda tentativa com threshold adaptativo (melhora leitura em luz ruim)
         thresh = cv2.adaptiveThreshold(gray_img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                        cv2.THRESH_BINARY, 11, 2)
         decoded = decode(thresh)
@@ -326,7 +350,8 @@ def registrar_presenca(codigo_lido, df_participantes, ids_permitidos, meeting_id
         [st.session_state.lista_presenca, pd.DataFrame([novo_registro])],
         ignore_index=True,
     )
-    st.toast(f"✅ {nome} registrado com sucesso!", icon="✅")
+    # Guarda último registrado para exibir feedback sem rerun
+    st.session_state.ultimo_registrado = nome
     return True
 
 # ==========================
@@ -346,11 +371,12 @@ if "lista_presenca" not in st.session_state:
     st.session_state.lista_presenca = pd.DataFrame(columns=["ID", "Nome", "Cargo", "Localidade", "Horario"])
 if "camera_key" not in st.session_state:
     st.session_state.camera_key = 0
-# Debounce: guarda o último código lido e o timestamp
 if "ultimo_codigo_lido" not in st.session_state:
     st.session_state.ultimo_codigo_lido = None
 if "ultimo_lido_ts" not in st.session_state:
     st.session_state.ultimo_lido_ts = 0.0
+if "ultimo_registrado" not in st.session_state:
+    st.session_state.ultimo_registrado = None
 
 hoje = date.today().strftime("%Y-%m-%d")
 
@@ -479,35 +505,35 @@ convocados_df = filtrar_participantes_convocados(df_participantes, reuniao_ativa
 col_id_conv = "ID" if "ID" in convocados_df.columns else "id"
 ids_permitidos = set(convocados_df[col_id_conv].values.tolist()) if not convocados_df.empty else set()
 
-# -------------------------------------------------------
-# CÂMERA ÚNICA — funciona em Android, iOS e Desktop
-# Tira foto e processa QR automaticamente via OpenCV
-# -------------------------------------------------------
-st.markdown("### 📷 Aponte a câmera para o QR Code e tire a foto")
-st.caption("Funciona em celular (Android/iOS) e computador. Após a foto, o registro é automático.")
+# Feedback do último registro (sem rerun)
+if st.session_state.ultimo_registrado:
+    st.success(f"✅ {st.session_state.ultimo_registrado} registrado com sucesso!")
+    st.session_state.ultimo_registrado = None
 
-camera_key = f"camera_{st.session_state.camera_key}"
-img = st.camera_input("📸 Tirar foto do QR Code", key=camera_key)
+# -------------------------------------------------------
+# CÂMERA — usa facingMode environment via JavaScript
+# NÃO faz rerun após leitura, evita troca de câmera
+# -------------------------------------------------------
+st.markdown("### 📷 Aponte a câmera traseira para o QR Code")
+st.caption("⏳ Após tirar a foto, o registro é automático. A câmera permanece aberta.")
+
+img = st.camera_input("📸 Tirar foto do QR Code", key="camera_fixa")
 
 if img:
     codigo = processar_qr_code_imagem(img)
     if codigo:
         agora = time_module.time()
-        # Debounce: ignora se o mesmo código foi lido nos últimos 3 segundos
         mesmo_codigo = (codigo == st.session_state.ultimo_codigo_lido)
         dentro_do_cooldown = (agora - st.session_state.ultimo_lido_ts) < 3.0
         if mesmo_codigo and dentro_do_cooldown:
-            st.info(f"⏳ Aguarde para registrar novamente.")
+            st.info("⏳ Mesmo QR Code. Aguarde 3s para registrar novamente.")
         else:
             st.session_state.ultimo_codigo_lido = codigo
             st.session_state.ultimo_lido_ts = agora
-            sucesso = registrar_presenca(codigo, df_participantes, ids_permitidos, reuniao_ativa["id"])
-            if sucesso:
-                # Reseta câmera para nova leitura
-                st.session_state.camera_key += 1
-                st.rerun()
+            registrar_presenca(codigo, df_participantes, ids_permitidos, reuniao_ativa["id"])
+            # SEM st.rerun() — a câmera permanece na traseira!
     else:
-        st.warning("⚠️ QR Code não detectado. Tente melhorar a iluminação ou aproximar mais.")
+        st.warning("⚠️ QR Code não detectado. Melhore a iluminação ou aproxime mais.")
 
 # --- Área de Resultados ---
 if not st.session_state.lista_presenca.empty:
