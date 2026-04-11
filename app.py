@@ -1,8 +1,5 @@
 import streamlit as st
 import pandas as pd
-import cv2
-import numpy as np
-from pyzbar.pyzbar import decode
 from fpdf import FPDF
 from datetime import datetime, date, time
 import pytz
@@ -42,15 +39,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ---------------------------------------------------------------------------
-# COMPONENTE DE CAMERA AUTOMATICA (HTML + JS + jsQR)
-# - Abre camera traseira automaticamente
-# - Escaneia frames continuamente
-# - Quando detecta QR, envia o codigo para o Python via query param
-# - Reseta automaticamente apos leitura
-# ---------------------------------------------------------------------------
-CAMERA_HTML = """
-<!DOCTYPE html>
+# CAMERA_HTML - todos os textos sem emojis para evitar UnicodeEncodeError
+CAMERA_HTML = """<!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -58,33 +48,26 @@ CAMERA_HTML = """
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body { background:#111; display:flex; flex-direction:column;
-         align-items:center; justify-content:center; min-height:100vh; }
+         align-items:center; justify-content:center; min-height:100vh; font-family:sans-serif; }
   #container { position:relative; width:100%; max-width:480px; }
   video { width:100%; border-radius:12px; display:block; }
   canvas { display:none; }
-  #overlay {
-    position:absolute; top:0; left:0; width:100%; height:100%;
+  #mira {
+    position:absolute; top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    width:200px; height:200px;
+    border:3px solid rgba(255,255,255,0.8);
+    border-radius:16px;
+    box-shadow: 0 0 0 4000px rgba(0,0,0,0.4);
     pointer-events:none;
   }
   #status {
-    margin-top:10px; padding:12px 16px; border-radius:10px;
-    font-family:sans-serif; font-size:1rem; font-weight:bold;
-    text-align:center; color:white;
-    background:#333; min-height:48px;
-    transition: background 0.3s;
+    margin-top:10px; padding:14px 16px; border-radius:10px;
+    font-size:1rem; font-weight:bold; text-align:center; color:white;
+    background:#333; min-height:50px; transition:background 0.3s;
   }
   #status.ok  { background:linear-gradient(135deg,#1a7a4a,#25a060); }
-  #status.err { background:linear-gradient(135deg,#b8860b,#e0a800); }
-  #mira {
-    position:absolute;
-    top:50%; left:50%;
-    transform:translate(-50%,-50%);
-    width:200px; height:200px;
-    border:3px solid rgba(255,255,255,0.7);
-    border-radius:16px;
-    box-shadow: 0 0 0 4000px rgba(0,0,0,0.35);
-    pointer-events:none;
-  }
+  #status.warn { background:linear-gradient(135deg,#b8860b,#e0a800); }
 </style>
 </head>
 <body>
@@ -93,80 +76,60 @@ CAMERA_HTML = """
   <canvas id="canvas"></canvas>
   <div id="mira"></div>
 </div>
-<div id="status">📷 Aponte para o QR Code...</div>
-
+<div id="status">Aponte a camera para o QR Code...</div>
 <script>
-const video    = document.getElementById('video');
-const canvas   = document.getElementById('canvas');
-const statusEl = document.getElementById('status');
-const ctx      = canvas.getContext('2d');
+var video    = document.getElementById('video');
+var canvas   = document.getElementById('canvas');
+var statusEl = document.getElementById('status');
+var ctx      = canvas.getContext('2d');
+var scanning  = true;
+var lastCode  = '';
+var lastTime  = 0;
+var COOLDOWN  = 3000;
 
-let scanning   = true;
-let lastCode   = '';
-let lastTime   = 0;
-const COOLDOWN = 3000; // ms entre leituras do mesmo codigo
-
-// Inicia camera traseira
 navigator.mediaDevices.getUserMedia({
   video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }
-}).then(stream => {
+}).then(function(stream) {
   video.srcObject = stream;
   video.play();
   requestAnimationFrame(scan);
-}).catch(err => {
-  statusEl.textContent = '\u26a0\ufe0f Permita o acesso a camera.';
-  statusEl.className = 'err';
+}).catch(function() {
+  statusEl.textContent = 'Permita o acesso a camera nas configuracoes do navegador.';
+  statusEl.className = 'warn';
 });
 
 function scan() {
-  if (!scanning) { requestAnimationFrame(scan); return; }
-  if (video.readyState !== video.HAVE_ENOUGH_DATA) { requestAnimationFrame(scan); return; }
-
+  if (!scanning || video.readyState !== video.HAVE_ENOUGH_DATA) {
+    requestAnimationFrame(scan); return;
+  }
   canvas.width  = video.videoWidth;
   canvas.height = video.videoHeight;
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const code = jsQR(imageData.data, imageData.width, imageData.height, {
-    inversionAttempts: 'dontInvert'
-  });
-
+  var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  var code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
   if (code) {
-    const now  = Date.now();
-    const diff = now - lastTime;
-    if (code.data === lastCode && diff < COOLDOWN) {
-      requestAnimationFrame(scan);
-      return;
+    var now = Date.now();
+    if (code.data === lastCode && (now - lastTime) < COOLDOWN) {
+      requestAnimationFrame(scan); return;
     }
     lastCode = code.data;
     lastTime = now;
-
-    // Feedback visual imediato
-    statusEl.textContent = '\u2705 Lido: ' + code.data;
+    statusEl.textContent = 'Registrando: ' + code.data;
     statusEl.className   = 'ok';
-
-    // Pausa 1.5s para feedback, depois reseta
     scanning = false;
-    setTimeout(() => {
-      statusEl.textContent = '\ud83d\udcf7 Aponte para o QR Code...';
+    window.parent.postMessage({ type: 'qr_code', data: code.data }, '*');
+    setTimeout(function() {
+      statusEl.textContent = 'Aponte a camera para o proximo QR Code...';
       statusEl.className   = '';
       scanning = true;
-    }, 1500);
-
-    // Envia para o Streamlit via postMessage
-    window.parent.postMessage({ type: 'qr_code', data: code.data }, '*');
+    }, 2000);
   }
-
   requestAnimationFrame(scan);
 }
 </script>
 </body>
-</html>
-"""
+</html>"""
 
-# ---------------------------------------------------------------------------
-# SUPABASE
-# ---------------------------------------------------------------------------
 @st.cache_resource
 def get_supabase() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -255,11 +218,11 @@ def atualizar_ou_criar_reuniao(reunioes, reuniao):
     return carregar_reunioes()
 
 def label_reuniao(r):
-    return f"{r.get('data','?')} {r.get('hora','?')} — {r.get('nome','?')}"
+    return f"{r.get('data','?')} {r.get('hora','?')} - {r.get('nome','?')}"
 
 def filtrar_participantes_convocados(df, reuniao):
     if df.empty or not reuniao: return df
-    tipo   = reuniao.get("filtro_tipo", "Todos")
+    tipo    = reuniao.get("filtro_tipo", "Todos")
     valores = reuniao.get("filtro_valores", [])
     cc = "Cargo" if "Cargo" in df.columns else "cargo"
     cl = "Localidade" if "Localidade" in df.columns else "localidade"
@@ -375,7 +338,6 @@ defaults = {
     "feedback_status": None,
     "feedback_msg": "",
     "feedback_ts": 0.0,
-    "qr_pendente": None,   # codigo enviado pelo componente JS aguardando processamento
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -385,14 +347,14 @@ hoje = date.today().strftime("%Y-%m-%d")
 
 # --- Sidebar ---
 with st.sidebar:
-    st.header("📅 Agenda de Reunioes")
+    st.header("Agenda de Reunioes")
     mostrar_passadas = st.checkbox("Mostrar passadas", value=False)
     reunioes_visiveis = [r for r in reunioes if mostrar_passadas or r.get("data","") >= hoje]
     reunioes_hoje = [r for r in reunioes if r.get("data") == hoje]
     if reunioes_hoje:
         st.markdown("**Hoje:**")
         for r in reunioes_hoje[:6]:
-            if st.button(f"▶️ {r.get('hora','')} - {r.get('nome','')}", key=f"st_{r['id']}"):
+            if st.button(f"Iniciar: {r.get('hora','')} - {r.get('nome','')}", key=f"st_{r['id']}"):
                 st.session_state.active_meeting_id = r["id"]
                 st.session_state.lista_presenca = carregar_presencas_reuniao(r["id"])
                 st.rerun()
@@ -407,13 +369,13 @@ with st.sidebar:
     else:
         st.info("Nenhuma reuniao agendada.")
     if reuniao_selecionada_id:
-        lbl = "🔄 Recarregar" if st.session_state.active_meeting_id == reuniao_selecionada_id else "▶️ Iniciar check-in"
+        lbl = "Recarregar" if st.session_state.active_meeting_id == reuniao_selecionada_id else "Iniciar check-in"
         if st.button(lbl, type="primary"):
             st.session_state.active_meeting_id = reuniao_selecionada_id
             st.session_state.lista_presenca = carregar_presencas_reuniao(reuniao_selecionada_id)
             st.rerun()
     st.divider()
-    st.header("🛠️ Criar / Editar")
+    st.header("Criar / Editar")
     modo = st.radio("Modo", ["Criar nova", "Editar selecionada"], index=1 if reuniao_selecionada_id else 0)
     rae = None
     if modo == "Editar selecionada" and reuniao_selecionada_id:
@@ -441,7 +403,7 @@ with st.sidebar:
         elif ft=="Manual" and not df_participantes.empty:
             op2=sorted(df_participantes["Nome" if "Nome" in df_participantes.columns else "nome"].unique())
             vals=st.multiselect("Nomes",op2,default=[v for v in vals_def if v in op2])
-        salvar=st.form_submit_button("💾 Salvar")
+        salvar=st.form_submit_button("Salvar")
     if salvar:
         if not ni.strip(): st.error("Informe o nome.")
         else:
@@ -454,7 +416,7 @@ with st.sidebar:
     if modo=="Editar selecionada" and rae:
         st.divider()
         conf=st.checkbox("Confirmar exclusao")
-        if st.button("🗑️ Excluir reuniao", disabled=not conf):
+        if st.button("Excluir reuniao", disabled=not conf):
             reunioes=excluir_reuniao(reunioes,rae["id"])
             if st.session_state.active_meeting_id==rae["id"]:
                 st.session_state.active_meeting_id=None
@@ -472,12 +434,12 @@ if st.session_state.active_meeting_id:
         st.session_state.lista_presenca=carregar_presencas_reuniao(reuniao_ativa["id"])
 
 if not reuniao_ativa:
-    st.title("📲 Check-in")
-    st.warning("Selecione uma reuniao no menu lateral e clique em 'Iniciar check-in'.")
+    st.title("Check-in QR Code")
+    st.warning("Selecione uma reuniao no menu lateral e clique em Iniciar check-in.")
     st.stop()
 
 # --- Cabecalho ---
-st.title(f"📲 {reuniao_ativa.get('nome')}")
+st.title(f"Check-in: {reuniao_ativa.get('nome')}")
 conv_df = filtrar_participantes_convocados(df_participantes, reuniao_ativa)
 cid2 = "ID" if "ID" in conv_df.columns else "id"
 ids_permitidos = set(conv_df[cid2].values.tolist()) if not conv_df.empty else set()
@@ -485,21 +447,12 @@ ids_permitidos = set(conv_df[cid2].values.tolist()) if not conv_df.empty else se
 total_conv = len(conv_df)
 total_pres = len(st.session_state.lista_presenca)
 cc1,cc2,cc3 = st.columns(3)
-cc1.metric("👥 Convocados", total_conv)
-cc2.metric("✅ Presentes",  total_pres)
-cc3.metric("⏰ Faltantes",  max(0, total_conv - total_pres))
+cc1.metric("Convocados", total_conv)
+cc2.metric("Presentes",  total_pres)
+cc3.metric("Faltantes",  max(0, total_conv - total_pres))
 st.divider()
 
-# ---------------------------------------------------------------------------
-# CAMERA AUTOMATICA
-# O componente HTML roda no iframe do browser e envia o QR via postMessage.
-# O Streamlit captura via st.query_params quando o JS atualiza a URL.
-# Como postMessage nao atravessa iframes do Streamlit diretamente,
-# usamos um input oculto: o JS escreve na URL (?qr=CODIGO) e
-# o Python le via st.query_params no proximo ciclo.
-# ---------------------------------------------------------------------------
-
-# Le QR da URL se foi enviado pelo componente JS
+# --- Processa QR recebido via query_params ---
 qr_da_url = st.query_params.get("qr", None)
 if qr_da_url and qr_da_url != st.session_state.ultimo_codigo_lido:
     agora = time_module.time()
@@ -509,59 +462,54 @@ if qr_da_url and qr_da_url != st.session_state.ultimo_codigo_lido:
     st.session_state.feedback_status = status
     st.session_state.feedback_msg    = msg
     st.session_state.feedback_ts     = agora
-    # Limpa o parametro da URL para nao reprocessar
     st.query_params.clear()
     st.rerun()
 
-st.markdown("### 📷 Leitura automatica de QR Code")
-st.caption("Aponte a camera para o QR Code — o registro acontece automaticamente.")
+st.markdown("### Camera - Leitura Automatica")
+st.caption("Aponte a camera traseira para o QR Code. O registro e automatico.")
 
-# Componente de camera em iframe
-components.html(CAMERA_HTML, height=420, scrolling=False)
+# Renderiza o componente de camera (HTML puro, sem emojis)
+components.html(CAMERA_HTML, height=440, scrolling=False)
 
-# Campo oculto que recebe o codigo do JS via comunicacao entre frames
-# O JS usa window.parent.postMessage; aqui capturamos com um truque:
-# injetamos um listener no contexto pai que redireciona para query_params
-st.markdown("""
+# Listener JS que captura postMessage do iframe e redireciona para query_params
+st.components.v1.html("""
 <script>
-window.addEventListener('message', function(event) {
-    if (event.data && event.data.type === 'qr_code') {
-        const code = encodeURIComponent(event.data.data);
-        // Atualiza a URL com o codigo lido e dispara rerun do Streamlit
-        const url = new URL(window.location.href);
-        url.searchParams.set('qr', code);
-        window.location.href = url.toString();
+window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'qr_code') {
+        var url = new URL(window.parent.location.href);
+        url.searchParams.set('qr', e.data.data);
+        window.parent.location.href = url.toString();
     }
 });
 </script>
-""", unsafe_allow_html=True)
+""", height=0)
 
-# Exibe feedback do ultimo registro
+# Exibe feedback
 if st.session_state.feedback_status == "ok":
     st.markdown(
-        f'<div class="registro-ok">✅ {st.session_state.feedback_msg}<br>'
-        f'<span style="font-size:0.85rem;font-weight:normal;">Registrado com sucesso!</span></div>',
+        '<div class="registro-ok">Registrado com sucesso!<br>'
+        f'<span style="font-size:1.1rem;">{st.session_state.feedback_msg}</span></div>',
         unsafe_allow_html=True)
-elif st.session_state.feedback_status in ("duplicado", "aviso"):
+elif st.session_state.feedback_status == "duplicado":
     st.markdown(
-        f'<div class="registro-aviso">⚠️ {st.session_state.feedback_msg}</div>',
+        f'<div class="registro-aviso">Atencao: {st.session_state.feedback_msg}</div>',
         unsafe_allow_html=True)
 elif st.session_state.feedback_status in ("bloqueado", "erro"):
     st.markdown(
-        f'<div class="registro-erro">❌ {st.session_state.feedback_msg}</div>',
+        f'<div class="registro-erro">Erro: {st.session_state.feedback_msg}</div>',
         unsafe_allow_html=True)
 
 # --- Resultados ---
 if not st.session_state.lista_presenca.empty:
     st.divider()
-    st.markdown("### 📊 Resumo")
+    st.markdown("### Resumo")
     rc = st.session_state.lista_presenca["Cargo"].value_counts()
     rl = st.session_state.lista_presenca["Localidade"].value_counts()
     c1,c2 = st.columns(2)
     c1.dataframe(rc, use_container_width=True)
     c2.dataframe(rl, use_container_width=True)
     st.divider()
-    st.markdown("### 📝 Lista de Presentes")
+    st.markdown("### Lista de Presentes")
     st.dataframe(
         st.session_state.lista_presenca[["Nome","Cargo","Localidade","Horario"]],
         use_container_width=True, hide_index=True)
@@ -569,18 +517,18 @@ if not st.session_state.lista_presenca.empty:
     cA,cB,cC = st.columns(3)
     arq = f"{reuniao_ativa.get('data','')}_{reuniao_ativa.get('hora','')}_{reuniao_ativa.get('nome','reuniao')}".replace(" ","_")
     with cA:
-        if st.button("📄 PDF"):
+        if st.button("Gerar PDF"):
             st.download_button("Baixar PDF",
                 data=gerar_pdf(st.session_state.lista_presenca,rc,rl,reuniao_ativa.get("nome","Reuniao")),
                 file_name=f"{arq}.pdf", mime="application/pdf")
     with cB:
-        if st.button("📋 Excel"):
+        if st.button("Gerar Excel"):
             st.download_button("Baixar Excel",
                 data=gerar_excel(st.session_state.lista_presenca,rc,rl,reuniao_ativa.get("nome","Reuniao")),
                 file_name=f"{arq}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     with cC:
-        if st.button("🗑️ Limpar"):
+        if st.button("Limpar lista"):
             if limpar_presencas_reuniao(reuniao_ativa["id"]):
                 st.session_state.lista_presenca = pd.DataFrame(
                     columns=["ID","Nome","Cargo","Localidade","Horario"])
