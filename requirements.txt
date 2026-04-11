@@ -8,3 +8,4 @@ qrcode[pil]
 Pillow
 pyzbar
 numpy
+plotly
