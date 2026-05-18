@@ -17,9 +17,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import io
 
-# -------------------------------------------------------
-#  QR CODE (geração de imagem)
-# -------------------------------------------------------
 try:
     import qrcode
     QR_OK = True
@@ -48,7 +45,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ██████████████████████ CSS GLOBAL ██████████████████████
 st.markdown('''
 <style>
 [data-testid="stAppViewContainer"] {
@@ -237,8 +233,15 @@ def get_supabase():
 
 supabase: Client = get_supabase()
 
+BR = pytz.timezone("America/Cuiaba")
+
+def agora_br():
+    return datetime.now(BR)
+
 # -------------------------------------------------------
-# HELPERS
+# HELPERS  —  nomes reais das colunas:
+#   presencas: id, meeting_id, id_participante, nome, cargo, localidade, horario, data_registro
+#   participantes: id, nome, cargo, localidade, instrumento
 # -------------------------------------------------------
 def load_participantes():
     res = supabase.table("participantes").select("*").order("nome").execute()
@@ -248,22 +251,17 @@ def load_reunioes():
     res = supabase.table("reunioes").select("*").execute()
     return res.data or []
 
-def load_presencas(reuniao_id=None):
-    q = supabase.table("presencas").select("*, participantes(nome,cargo,localidade,instrumento)")
-    if reuniao_id:
-        q = q.eq("reuniao_id", reuniao_id)
+def load_presencas(meeting_id=None):
+    """Busca presenças com join via FK em participantes."""
+    q = supabase.table("presencas").select("*, participantes(nome, cargo, localidade, instrumento)")
+    if meeting_id:
+        q = q.eq("meeting_id", meeting_id)
     return q.execute().data or []
-
-BR = pytz.timezone("America/Cuiaba")
-
-def agora_br():
-    return datetime.now(BR)
 
 # -------------------------------------------------------
 # GERAÇÃO DE PDF QR CODE
 # -------------------------------------------------------
 def gerar_pdf_membros(membros: list) -> bytes:
-    """Recebe lista de dicts com id, nome, cargo, localidade, instrumento."""
     NAVY  = colors.HexColor("#1a2f5e")
     WHITE = colors.white
     GRAY  = colors.HexColor("#555555")
@@ -282,7 +280,7 @@ def gerar_pdf_membros(membros: list) -> bytes:
     buf_pdf = io.BytesIO()
     doc = SimpleDocTemplate(buf_pdf, pagesize=A4,
                             rightMargin=1.5*cm, leftMargin=1.5*cm,
-                            topMargin=1.5*cm,  bottomMargin=1.5*cm)
+                            topMargin=1.5*cm,   bottomMargin=1.5*cm)
     story = []
     for m in membros:
         qr = qrcode.QRCode(version=2, box_size=6, border=2)
@@ -309,20 +307,20 @@ def gerar_pdf_membros(membros: list) -> bytes:
             [Paragraph(m["id"], code_style), ""],
         ], colWidths=[4*cm, 12*cm])
         card.setStyle(TableStyle([
-            ("BACKGROUND",   (0,0), (-1,0), NAVY),
-            ("SPAN",         (0,0), (-1,0)),
-            ("TOPPADDING",   (0,0), (-1,0), 6),
-            ("BOTTOMPADDING",(0,0), (-1,0), 6),
-            ("VALIGN",       (0,1), (-1,1), "MIDDLE"),
-            ("ALIGN",        (0,1), (0,1),  "CENTER"),
-            ("LEFTPADDING",  (1,1), (1,1),  10),
-            ("TOPPADDING",   (0,1), (-1,1), 8),
-            ("BOTTOMPADDING",(0,1), (-1,1), 8),
-            ("SPAN",         (0,2), (-1,2)),
-            ("BACKGROUND",   (0,2), (-1,2), LIGHT),
-            ("TOPPADDING",   (0,2), (-1,2), 6),
-            ("BOTTOMPADDING",(0,2), (-1,2), 6),
-            ("BOX",          (0,0), (-1,-1), 1, NAVY),
+            ("BACKGROUND",    (0,0), (-1,0), NAVY),
+            ("SPAN",          (0,0), (-1,0)),
+            ("TOPPADDING",    (0,0), (-1,0), 6),
+            ("BOTTOMPADDING", (0,0), (-1,0), 6),
+            ("VALIGN",        (0,1), (-1,1), "MIDDLE"),
+            ("ALIGN",         (0,1), (0,1),  "CENTER"),
+            ("LEFTPADDING",   (1,1), (1,1),  10),
+            ("TOPPADDING",    (0,1), (-1,1), 8),
+            ("BOTTOMPADDING", (0,1), (-1,1), 8),
+            ("SPAN",          (0,2), (-1,2)),
+            ("BACKGROUND",    (0,2), (-1,2), LIGHT),
+            ("TOPPADDING",    (0,2), (-1,2), 6),
+            ("BOTTOMPADDING", (0,2), (-1,2), 6),
+            ("BOX",           (0,0), (-1,-1), 1, NAVY),
         ]))
         story.append(card)
         story.append(Spacer(1, 0.8*cm))
@@ -357,7 +355,7 @@ if pagina == "🏠 Home":
     </div>
     ''', unsafe_allow_html=True)
 
-    df_p = load_participantes()
+    df_p     = load_participantes()
     reunioes = load_reunioes()
     presencas = load_presencas()
 
@@ -391,7 +389,7 @@ if pagina == "🏠 Home":
     hoje = agora_br().date()
     for r in reunioes:
         data_r = date.fromisoformat(r["data"]) if isinstance(r["data"], str) else r["data"]
-        badge = '<span class="reuniao-hoje-badge">HOJE</span>' if data_r == hoje else ""
+        badge  = '<span class="reuniao-hoje-badge">HOJE</span>' if data_r == hoje else ""
         st.markdown(f'''
         <div class="reuniao-card">
             <p class="rc-hora">{r.get("horario","")} {badge}</p>
@@ -420,25 +418,30 @@ elif pagina == "📷 Check-in":
         st.stop()
 
     nomes_r = [r["nome"] for r in reunioes]
-    sel = st.selectbox("Selecione a reunião", nomes_r)
+    sel     = st.selectbox("Selecione a reunião", nomes_r)
     reuniao = next(r for r in reunioes if r["nome"] == sel)
 
     tab_cam, tab_cod = st.tabs(["📸 Câmera", "⌨️ Código Manual"])
 
-    def registrar_presenca(codigo, reuniao_id):
-        res = supabase.table("participantes").select("*").eq("id", codigo.upper().strip()).execute()
+    def registrar_presenca(codigo, meeting_id):
+        codigo = codigo.upper().strip()
+        res = supabase.table("participantes").select("*").eq("id", codigo).execute()
         if not res.data:
             return None, "not_found"
         membro = res.data[0]
         chk = supabase.table("presencas").select("id") \
-            .eq("participante_id", codigo.upper().strip()) \
-            .eq("reuniao_id", reuniao_id).execute()
+            .eq("id_participante", codigo) \
+            .eq("meeting_id", meeting_id).execute()
         if chk.data:
             return membro, "duplicate"
         supabase.table("presencas").insert({
-            "participante_id": codigo.upper().strip(),
-            "reuniao_id": reuniao_id,
-            "hora": agora_br().strftime("%H:%M:%S")
+            "id_participante": codigo,
+            "meeting_id":      meeting_id,
+            "nome":            membro["nome"],
+            "cargo":           membro["cargo"],
+            "localidade":      membro["localidade"],
+            "horario":         agora_br().strftime("%H:%M:%S"),
+            "data_registro":   agora_br().strftime("%Y-%m-%d")
         }).execute()
         return membro, "ok"
 
@@ -488,17 +491,17 @@ elif pagina == "📊 Relatórios":
     ''', unsafe_allow_html=True)
 
     reunioes = load_reunioes()
-    df_p = load_participantes()
+    df_p     = load_participantes()
 
     if not reunioes:
         st.info("Nenhuma reunião cadastrada.")
         st.stop()
 
-    sel = st.selectbox("Reunião", [r["nome"] for r in reunioes])
+    sel     = st.selectbox("Reunião", [r["nome"] for r in reunioes])
     reuniao = next(r for r in reunioes if r["nome"] == sel)
     presencas = load_presencas(reuniao["id"])
 
-    ids_pres = {p["participante_id"] for p in presencas}
+    ids_pres = {p["id_participante"] for p in presencas}
     total = len(df_p)
     pres  = len(ids_pres)
     ause  = total - pres
@@ -514,11 +517,11 @@ elif pagina == "📊 Relatórios":
 
     if presencas:
         df_pres = pd.DataFrame([{
-            "Nome":       p["participantes"]["nome"],
-            "Cargo":      p["participantes"]["cargo"],
-            "Localidade": p["participantes"]["localidade"],
-            "Instrumento":p["participantes"].get("instrumento",""),
-            "Hora":       p["hora"]
+            "Nome":        p["participantes"]["nome"],
+            "Cargo":       p["participantes"]["cargo"],
+            "Localidade":  p["participantes"]["localidade"],
+            "Instrumento": p["participantes"].get("instrumento", ""),
+            "Hora":        p.get("horario", "")
         } for p in presencas])
         st.dataframe(df_pres, use_container_width=True)
 
@@ -531,8 +534,8 @@ elif pagina == "📊 Relatórios":
         ws = wb.active
         ws.title = "Presenças"
         headers = list(df_pres.columns)
-        fill_h = PatternFill("solid", fgColor="1a2f5e")
-        font_h = Font(color="FFFFFF", bold=True)
+        fill_h  = PatternFill("solid", fgColor="1a2f5e")
+        font_h  = Font(color="FFFFFF", bold=True)
         for ci, h in enumerate(headers, 1):
             cell = ws.cell(1, ci, h)
             cell.fill = fill_h
@@ -573,15 +576,14 @@ elif pagina == "👥 Gerenciar Membros":
         "SECRETÁRIO DO GEM", "INSTRUTOR", "EXAMINADORA DE ORGANISTAS"
     ]
 
-    df = load_participantes()
-
+    df  = load_participantes()
     aba = st.tabs(["📋 Lista", "➕ Incluir", "✏️ Editar", "🗑️ Excluir", "🖨️ Gerar PDF"])
 
-    # ── ABA LISTA ──────────────────────────────────────
+    # ── LISTA
     with aba[0]:
         st.markdown(f"**{len(df)} membros cadastrados**")
         col_f1, col_f2 = st.columns(2)
-        filtro_cargo = col_f1.selectbox("Filtrar por cargo", ["Todos"] + CARGOS, key="f_cargo")
+        filtro_cargo = col_f1.selectbox("Filtrar por cargo",       ["Todos"] + CARGOS,       key="f_cargo")
         filtro_instr = col_f2.selectbox("Filtrar por instrumento", ["Todos"] + INSTRUMENTOS, key="f_instr")
         df_view = df.copy()
         if filtro_cargo != "Todos":
@@ -591,15 +593,15 @@ elif pagina == "👥 Gerenciar Membros":
         cols_show = [c for c in ["id","nome","cargo","instrumento","localidade"] if c in df_view.columns]
         st.dataframe(df_view[cols_show], use_container_width=True, hide_index=True)
 
-    # ── ABA INCLUIR ────────────────────────────────────
+    # ── INCLUIR
     with aba[1]:
         st.markdown('<div class="form-card">', unsafe_allow_html=True)
         st.markdown("##### Novo Membro")
         n_id    = st.text_input("ID (ex: AB030)", key="n_id").upper().strip()
-        n_nome  = st.text_input("Nome completo", key="n_nome").upper().strip()
-        n_cargo = st.selectbox("Cargo", CARGOS, key="n_cargo")
-        n_instr = st.selectbox("Instrumento", INSTRUMENTOS, key="n_instr")
-        n_local = st.text_input("Localidade", key="n_local").upper().strip()
+        n_nome  = st.text_input("Nome completo",  key="n_nome").upper().strip()
+        n_cargo = st.selectbox("Cargo",           CARGOS,       key="n_cargo")
+        n_instr = st.selectbox("Instrumento",     INSTRUMENTOS, key="n_instr")
+        n_local = st.text_input("Localidade",      key="n_local").upper().strip()
         st.markdown('</div>', unsafe_allow_html=True)
         if st.button("➕ Incluir Membro", type="primary", key="btn_incluir"):
             if not n_id or not n_nome or not n_local:
@@ -614,28 +616,28 @@ elif pagina == "👥 Gerenciar Membros":
                         "instrumento": n_instr, "localidade": n_local
                     }).execute()
                     st.success(f"✅ {n_nome} incluído com sucesso!")
-                    st.cache_resource.clear()
                     st.rerun()
 
-    # ── ABA EDITAR ─────────────────────────────────────
+    # ── EDITAR
     with aba[2]:
         if df.empty:
             st.info("Nenhum membro cadastrado.")
         else:
-            opts = df["id"] + " — " + df["nome"]
+            opts  = df["id"] + " — " + df["nome"]
             sel_e = st.selectbox("Selecione o membro", opts, key="sel_editar")
-            mid = sel_e.split(" — ")[0]
-            mrow = df[df["id"] == mid].iloc[0]
+            mid   = sel_e.split(" — ")[0]
+            mrow  = df[df["id"] == mid].iloc[0]
 
             st.markdown('<div class="form-card">', unsafe_allow_html=True)
-            e_nome  = st.text_input("Nome",        value=mrow["nome"],        key="e_nome").upper().strip()
-            e_cargo = st.selectbox("Cargo",        CARGOS,
+            e_nome  = st.text_input("Nome",       value=mrow["nome"],       key="e_nome").upper().strip()
+            e_cargo = st.selectbox("Cargo",       CARGOS,
                                    index=CARGOS.index(mrow["cargo"]) if mrow["cargo"] in CARGOS else 0,
                                    key="e_cargo")
-            e_instr = st.selectbox("Instrumento",  INSTRUMENTOS,
-                                   index=INSTRUMENTOS.index(mrow["instrumento"]) if mrow.get("instrumento") in INSTRUMENTOS else 0,
+            instr_val = mrow.get("instrumento") or ""
+            e_instr = st.selectbox("Instrumento", INSTRUMENTOS,
+                                   index=INSTRUMENTOS.index(instr_val) if instr_val in INSTRUMENTOS else 0,
                                    key="e_instr")
-            e_local = st.text_input("Localidade",  value=mrow["localidade"],  key="e_local").upper().strip()
+            e_local = st.text_input("Localidade", value=mrow["localidade"], key="e_local").upper().strip()
             st.markdown('</div>', unsafe_allow_html=True)
             if st.button("💾 Salvar Alterações", type="primary", key="btn_editar"):
                 supabase.table("participantes").update({
@@ -645,7 +647,7 @@ elif pagina == "👥 Gerenciar Membros":
                 st.success(f"✅ {e_nome} atualizado!")
                 st.rerun()
 
-    # ── ABA EXCLUIR ────────────────────────────────────
+    # ── EXCLUIR
     with aba[3]:
         if df.empty:
             st.info("Nenhum membro cadastrado.")
@@ -655,23 +657,22 @@ elif pagina == "👥 Gerenciar Membros":
             mid_d  = sel_d.split(" — ")[0]
             st.warning(f"⚠️ Tem certeza que deseja excluir **{sel_d}**? Isso também remove as presenças vinculadas.")
             if st.button("🗑️ Confirmar Exclusão", type="primary", key="btn_excluir"):
-                supabase.table("presencas").delete().eq("participante_id", mid_d).execute()
+                supabase.table("presencas").delete().eq("id_participante", mid_d).execute()
                 supabase.table("participantes").delete().eq("id", mid_d).execute()
                 st.success(f"✅ Membro {mid_d} excluído.")
                 st.rerun()
 
-    # ── ABA GERAR PDF ──────────────────────────────────
+    # ── GERAR PDF
     with aba[4]:
         if not QR_OK or not RL_OK:
             st.error("Bibliotecas qrcode e/ou reportlab não instaladas.")
         else:
-            st.markdown("Escolha quais membros deseja incluir no PDF:")
             opcao = st.radio("Opção", ["Todos os membros", "Selecionar específicos"], key="pdf_opcao")
             if opcao == "Selecionar específicos":
                 opts_p = df["id"] + " — " + df["nome"]
                 sels_p = st.multiselect("Membros", opts_p, key="pdf_sels")
                 ids_sel = [s.split(" — ")[0] for s in sels_p]
-                df_sel = df[df["id"].isin(ids_sel)]
+                df_sel  = df[df["id"].isin(ids_sel)]
             else:
                 df_sel = df
 
@@ -680,8 +681,7 @@ elif pagina == "👥 Gerenciar Membros":
                     st.warning("Nenhum membro selecionado.")
                 else:
                     with st.spinner("Gerando PDF..."):
-                        membros_list = df_sel.to_dict(orient="records")
-                        pdf_bytes = gerar_pdf_membros(membros_list)
+                        pdf_bytes = gerar_pdf_membros(df_sel.to_dict(orient="records"))
                     st.download_button(
                         "⬇️ Baixar PDF",
                         data=pdf_bytes,
