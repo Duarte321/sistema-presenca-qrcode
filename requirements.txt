@@ -9,3 +9,4 @@ Pillow
 pyzbar
 numpy
 plotly
+reportlab
