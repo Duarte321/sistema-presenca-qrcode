@@ -24,7 +24,7 @@ try:
     from reportlab.lib.units import cm
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
     from reportlab.lib.styles import ParagraphStyle
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
     RL_OK = True
 except ImportError:
     RL_OK = False
@@ -71,16 +71,13 @@ CSS = """
     letter-spacing:1px; text-transform:uppercase;
 }
 
-/* ===== NAV: so os botoes reais, estilizados como pills ===== */
-/* Wrapper das colunas de nav: sem padding extra */
+/* ===== NAV ===== */
 div[data-testid="stHorizontalBlock"].nav-row {
     gap: 6px !important;
     padding: 12px 0 4px !important;
     border-bottom: 1px solid rgba(93,177,150,.15) !important;
     margin-bottom: 18px !important;
 }
-
-/* Botoes do nav */
 .nav-row div[data-testid="column"] .stButton > button {
     width: 100% !important;
     padding: 10px 6px !important;
@@ -99,14 +96,6 @@ div[data-testid="stHorizontalBlock"].nav-row {
     background: rgba(93,177,150,.1) !important;
     color: #98CDBD !important;
     border-color: rgba(93,177,150,.35) !important;
-}
-/* Botao ativo: injeta via JS no session_state — usamos data-active via CSS hack */
-.nav-row div[data-testid="column"] .stButton > button[data-active="true"],
-.nav-active .stButton > button {
-    background: linear-gradient(135deg,#1C3D5A,#49656C) !important;
-    color: #fff !important;
-    border-color: #5DB196 !important;
-    box-shadow: 0 2px 10px rgba(93,177,150,.25) !important;
 }
 
 /* ===== PAGE HEADER ===== */
@@ -333,8 +322,178 @@ def gerar_pdf_membros(membros: list) -> bytes:
     doc.build(story); buf_pdf.seek(0)
     return buf_pdf.read()
 
+
+def gerar_pdf_presencas(df_pr: pd.DataFrame, nome_reuniao: str,
+                         total_membros: int, presentes: int) -> bytes:
+    """
+    PDF de presenças ordenado por instrumento (por comum),
+    com horário de chegada e totais no final.
+    """
+    NAVY  = colors.HexColor("#1C3D5A")
+    TEAL  = colors.HexColor("#5DB196")
+    LIGHT = colors.HexColor("#EAF4EF")
+    GRAY  = colors.HexColor("#555555")
+    WHITE = colors.white
+    BLACK = colors.black
+
+    sT = ParagraphStyle("sT", fontName="Helvetica-Bold", fontSize=14,
+                        textColor=NAVY, alignment=TA_CENTER, spaceAfter=2)
+    sS = ParagraphStyle("sS", fontName="Helvetica", fontSize=9,
+                        textColor=GRAY, alignment=TA_CENTER, spaceAfter=8)
+    sG = ParagraphStyle("sG", fontName="Helvetica-Bold", fontSize=10,
+                        textColor=WHITE, alignment=TA_LEFT)
+    sN = ParagraphStyle("sN", fontName="Helvetica", fontSize=9,
+                        textColor=BLACK, alignment=TA_LEFT)
+    sR = ParagraphStyle("sR", fontName="Helvetica", fontSize=9,
+                        textColor=BLACK, alignment=TA_RIGHT)
+    sTot = ParagraphStyle("sTot", fontName="Helvetica-Bold", fontSize=10,
+                           textColor=NAVY, alignment=TA_LEFT)
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4,
+                            rightMargin=1.8*cm, leftMargin=1.8*cm,
+                            topMargin=1.8*cm, bottomMargin=1.8*cm)
+    story = []
+
+    # Cabeçalho
+    story.append(Paragraph("CCB MUSICAL — Lista de Presenças", sT))
+    story.append(Paragraph(nome_reuniao, sS))
+    story.append(Paragraph(
+        f"Gerado em: {datetime.now(BR).strftime('%d/%m/%Y %H:%M')}",
+        ParagraphStyle("d", fontName="Helvetica", fontSize=8,
+                       textColor=GRAY, alignment=TA_RIGHT)
+    ))
+    story.append(Spacer(1, 0.4*cm))
+
+    # Ordenar por instrumento
+    df_ord = df_pr.sort_values("Instrumento").reset_index(drop=True)
+
+    COL_W = [1.0*cm, 6.5*cm, 3.5*cm, 3.0*cm, 2.0*cm]
+
+    # Agrupa por instrumento
+    grupos = df_ord.groupby("Instrumento", sort=True)
+    for instr, grp in grupos:
+        # Cabeçalho do grupo (naipe)
+        hdr_row = [
+            Paragraph(f"  {instr}", sG), "", "", "", ""
+        ]
+        tbl_data = [hdr_row]
+
+        # Sub-cabeçalho das colunas
+        sub = [
+            Paragraph("#", ParagraphStyle("sh", fontName="Helvetica-Bold",
+                      fontSize=8, textColor=GRAY, alignment=TA_RIGHT)),
+            Paragraph("Nome", ParagraphStyle("sh", fontName="Helvetica-Bold",
+                      fontSize=8, textColor=GRAY)),
+            Paragraph("Cargo", ParagraphStyle("sh", fontName="Helvetica-Bold",
+                      fontSize=8, textColor=GRAY)),
+            Paragraph("Localidade", ParagraphStyle("sh", fontName="Helvetica-Bold",
+                      fontSize=8, textColor=GRAY)),
+            Paragraph("Horário", ParagraphStyle("sh", fontName="Helvetica-Bold",
+                      fontSize=8, textColor=GRAY, alignment=TA_RIGHT)),
+        ]
+        tbl_data.append(sub)
+
+        for i, (_, row) in enumerate(grp.iterrows(), 1):
+            tbl_data.append([
+                Paragraph(str(i), sR),
+                Paragraph(str(row["Nome"]), sN),
+                Paragraph(str(row.get("Cargo", "")), sN),
+                Paragraph(str(row.get("Localidade", "")), sN),
+                Paragraph(str(row.get("Hora", "")), sR),
+            ])
+
+        # Sub-total do grupo
+        tbl_data.append([
+            "", "",
+            Paragraph(f"Subtotal: {len(grp)}", sTot),
+            "", ""
+        ])
+
+        tbl = Table(tbl_data, colWidths=COL_W, repeatRows=1)
+        n_rows = len(tbl_data)
+        style_cmds = [
+            # Cabeçalho do grupo — linha 0 — span total
+            ("SPAN",       (0, 0), (-1, 0)),
+            ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+            ("TOPPADDING",    (0, 0), (-1, 0), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 5),
+            # Sub-header — linha 1
+            ("BACKGROUND", (0, 1), (-1, 1), LIGHT),
+            ("LINEBELOW",  (0, 1), (-1, 1), 0.5, TEAL),
+            # Linhas de dados — zebra suave
+            ("ROWBACKGROUNDS", (0, 2), (-1, n_rows-2),
+             [colors.white, colors.HexColor("#F7FBFA")]),
+            ("FONTSIZE",   (0, 2), (-1, n_rows-2), 9),
+            # Sub-total
+            ("BACKGROUND", (0, n_rows-1), (-1, n_rows-1), LIGHT),
+            ("SPAN",       (2, n_rows-1), (-1, n_rows-1)),
+            ("TOPPADDING",    (0, n_rows-1), (-1, n_rows-1), 4),
+            ("BOTTOMPADDING", (0, n_rows-1), (-1, n_rows-1), 4),
+            # Grade
+            ("GRID",       (0, 1), (-1, n_rows-2), 0.3,
+             colors.HexColor("#CCCCCC")),
+            ("LINEBELOW",  (0, n_rows-1), (-1, n_rows-1), 1, TEAL),
+            # Padding geral
+            ("LEFTPADDING",  (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING",   (0, 2), (-1, n_rows-2), 4),
+            ("BOTTOMPADDING",(0, 2), (-1, n_rows-2), 4),
+        ]
+        tbl.setStyle(TableStyle(style_cmds))
+        story.append(tbl)
+        story.append(Spacer(1, 0.35*cm))
+
+    # ---- TOTAIS FINAIS ----
+    story.append(Spacer(1, 0.3*cm))
+    ausentes  = total_membros - presentes
+    pct       = round(presentes / total_membros * 100) if total_membros else 0
+    tot_data  = [
+        [Paragraph("RESUMO GERAL", ParagraphStyle(
+            "rg", fontName="Helvetica-Bold", fontSize=11,
+            textColor=WHITE, alignment=TA_CENTER)), ""],
+        [Paragraph("Total de membros", sTot),
+         Paragraph(str(total_membros), ParagraphStyle(
+             "tv", fontName="Helvetica-Bold", fontSize=11,
+             textColor=NAVY, alignment=TA_RIGHT))],
+        [Paragraph("Presentes", sTot),
+         Paragraph(str(presentes), ParagraphStyle(
+             "tv", fontName="Helvetica-Bold", fontSize=11,
+             textColor=colors.HexColor("#2e7d52"), alignment=TA_RIGHT))],
+        [Paragraph("Ausentes", sTot),
+         Paragraph(str(ausentes), ParagraphStyle(
+             "tv", fontName="Helvetica-Bold", fontSize=11,
+             textColor=colors.HexColor("#c0392b"), alignment=TA_RIGHT))],
+        [Paragraph("Frequência", sTot),
+         Paragraph(f"{pct}%", ParagraphStyle(
+             "tv", fontName="Helvetica-Bold", fontSize=13,
+             textColor=TEAL, alignment=TA_RIGHT))],
+    ]
+    tot_tbl = Table(tot_data, colWidths=[10*cm, 5.7*cm])
+    tot_tbl.setStyle(TableStyle([
+        ("SPAN",       (0, 0), (-1, 0)),
+        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
+        ("TOPPADDING",    (0, 0), (-1, 0), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 7),
+        ("BACKGROUND", (0, 1), (-1, -1), LIGHT),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+         [colors.white, colors.HexColor("#EAF4EF")]),
+        ("GRID",  (0, 1), (-1, -1), 0.3, colors.HexColor("#CCCCCC")),
+        ("BOX",   (0, 0), (-1, -1), 1.2, TEAL),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING",   (0, 1), (-1, -1), 5),
+        ("BOTTOMPADDING",(0, 1), (-1, -1), 5),
+    ]))
+    story.append(tot_tbl)
+
+    doc.build(story)
+    buf.seek(0)
+    return buf.read()
+
+
 # -------------------------------------------------------
-# NAVEGACAO — botoes nativos Streamlit, SEM HTML duplicado
+# NAVEGACAO
 # -------------------------------------------------------
 PAGINAS = [
     ("home",    "🏠", "Painel"),
@@ -346,7 +505,6 @@ PAGINAS = [
 if "pagina" not in st.session_state:
     st.session_state.pagina = "home"
 
-# Top bar HTML (somente visual, sem nav)
 st.markdown('''
 <div class="ccb-topbar">
   <div style="display:flex;align-items:center">
@@ -362,13 +520,11 @@ st.markdown('''
 
 st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
 
-# NAV: apenas botoes reais, dentro de um container estilizado
 st.markdown('<div class="nav-row" style="display:flex;gap:6px;padding:10px 0 4px;border-bottom:1px solid rgba(93,177,150,.15);margin-bottom:16px"></div>', unsafe_allow_html=True)
 cols_nav = st.columns(4)
 for i, (key, icon, label) in enumerate(PAGINAS):
     with cols_nav[i]:
         ativo = st.session_state.pagina == key
-        # botao ativo recebe kind=primary, inativo é normal
         if ativo:
             if st.button(f"{icon} {label}", key=f"nav_{key}", use_container_width=True, type="primary"):
                 st.session_state.pagina = key; st.rerun()
@@ -381,7 +537,7 @@ st.markdown('<hr style="border:none;border-top:1px solid rgba(93,177,150,.15);ma
 pagina = st.session_state.pagina
 
 # ===================================================
-# HOME — SIMPLES E LIMPA
+# HOME
 # ===================================================
 if pagina == "home":
     df_p = load_participantes()
@@ -391,7 +547,6 @@ if pagina == "home":
     pct=round(tp/tm*100) if tm else 0
     hoje=agora_br().date()
 
-    # Saudacao
     hora=agora_br().hour
     if hora < 12: sauda="Bom dia"
     elif hora < 18: sauda="Boa tarde"
@@ -404,7 +559,6 @@ if pagina == "home":
     </div>
     ''', unsafe_allow_html=True)
 
-    # 4 cards de stat
     st.markdown(f'''
     <div class="stat-row">
         <div class="stat-card"><p class="stat-val sv-blue">{tm}</p><p class="stat-lbl">Membros</p></div>
@@ -416,7 +570,6 @@ if pagina == "home":
     <p class="prog-txt">Frequência geral: {pct}%</p>
     ''', unsafe_allow_html=True)
 
-    # Proxima reuniao: mostra apenas a mais proxima
     reun_ord = sorted(reun, key=lambda x: x["data"])
     proxima = None
     for r in reun_ord:
@@ -544,21 +697,55 @@ elif pagina == "relat":
         else: st.info("Sem dados para gráfico.")
 
     with t_exp:
-        if pres:
-            xlsx_buf=BytesIO(); wb=Workbook(); ws=wb.active; ws.title="Presenças"
-            fill_h=PatternFill("solid",fgColor="1C3D5A"); font_h=Font(color="FFFFFF",bold=True)
-            for ci,h in enumerate(df_pr.columns,1):
-                cell=ws.cell(1,ci,h); cell.fill=fill_h; cell.font=font_h
-                cell.alignment=Alignment(horizontal="center")
-            for ri,row in df_pr.iterrows():
-                for ci,val in enumerate(row,1): ws.cell(ri+2,ci,val)
-            for col in ws.columns: ws.column_dimensions[col[0].column_letter].width=22
-            wb.save(xlsx_buf); xlsx_buf.seek(0)
-            st.download_button("⬇️ Baixar Excel",xlsx_buf,
-                file_name=f"presencas_{sel}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True)
-        else: st.info("Nenhuma presença para exportar.")
+        if not pres:
+            st.info("Nenhuma presença para exportar.")
+        else:
+            if "df_pr" not in dir():
+                df_pr = pd.DataFrame([{
+                    "Nome": p["participantes"]["nome"],
+                    "Cargo": p["participantes"]["cargo"],
+                    "Localidade": p["participantes"]["localidade"],
+                    "Instrumento": p["participantes"].get("instrumento", ""),
+                    "Hora": p.get("horario", "")
+                } for p in pres])
+
+            col_xl, col_pdf = st.columns(2)
+
+            # ---- Excel ----
+            with col_xl:
+                xlsx_buf=BytesIO(); wb=Workbook(); ws=wb.active; ws.title="Presenças"
+                fill_h=PatternFill("solid",fgColor="1C3D5A"); font_h=Font(color="FFFFFF",bold=True)
+                for ci,h in enumerate(df_pr.columns,1):
+                    cell=ws.cell(1,ci,h); cell.fill=fill_h; cell.font=font_h
+                    cell.alignment=Alignment(horizontal="center")
+                for ri,row in df_pr.iterrows():
+                    for ci,val in enumerate(row,1): ws.cell(ri+2,ci,val)
+                for col in ws.columns: ws.column_dimensions[col[0].column_letter].width=22
+                wb.save(xlsx_buf); xlsx_buf.seek(0)
+                st.download_button(
+                    "📥 Baixar Excel", xlsx_buf,
+                    file_name=f"presencas_{sel}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+
+            # ---- PDF ----
+            with col_pdf:
+                if not RL_OK:
+                    st.error("❌ Instale: pip install reportlab")
+                else:
+                    if st.button("📄 Gerar PDF", type="primary",
+                                 key="btn_pdf_pres", use_container_width=True):
+                        with st.spinner("Gerando PDF..."):
+                            pdf_bytes = gerar_pdf_presencas(
+                                df_pr, sel, total, presente
+                            )
+                        st.download_button(
+                            "⬇️ Baixar PDF", data=pdf_bytes,
+                            file_name=f"presencas_{sel}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
 
 # ===================================================
 # MEMBROS
