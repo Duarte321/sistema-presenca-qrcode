@@ -325,10 +325,6 @@ def gerar_pdf_membros(membros: list) -> bytes:
 
 def gerar_pdf_presencas(df_pr: pd.DataFrame, nome_reuniao: str,
                          total_membros: int, presentes: int) -> bytes:
-    """
-    PDF de presenças ordenado por instrumento (por comum),
-    com horário de chegada e totais no final.
-    """
     NAVY  = colors.HexColor("#1C3D5A")
     TEAL  = colors.HexColor("#5DB196")
     LIGHT = colors.HexColor("#EAF4EF")
@@ -355,7 +351,6 @@ def gerar_pdf_presencas(df_pr: pd.DataFrame, nome_reuniao: str,
                             topMargin=1.8*cm, bottomMargin=1.8*cm)
     story = []
 
-    # Cabeçalho
     story.append(Paragraph("CCB MUSICAL — Lista de Presenças", sT))
     story.append(Paragraph(nome_reuniao, sS))
     story.append(Paragraph(
@@ -365,35 +360,21 @@ def gerar_pdf_presencas(df_pr: pd.DataFrame, nome_reuniao: str,
     ))
     story.append(Spacer(1, 0.4*cm))
 
-    # Ordenar por instrumento
     df_ord = df_pr.sort_values("Instrumento").reset_index(drop=True)
-
     COL_W = [1.0*cm, 6.5*cm, 3.5*cm, 3.0*cm, 2.0*cm]
 
-    # Agrupa por instrumento
     grupos = df_ord.groupby("Instrumento", sort=True)
     for instr, grp in grupos:
-        # Cabeçalho do grupo (naipe)
-        hdr_row = [
-            Paragraph(f"  {instr}", sG), "", "", "", ""
-        ]
+        hdr_row = [Paragraph(f"  {instr}", sG), "", "", "", ""]
         tbl_data = [hdr_row]
-
-        # Sub-cabeçalho das colunas
         sub = [
-            Paragraph("#", ParagraphStyle("sh", fontName="Helvetica-Bold",
-                      fontSize=8, textColor=GRAY, alignment=TA_RIGHT)),
-            Paragraph("Nome", ParagraphStyle("sh", fontName="Helvetica-Bold",
-                      fontSize=8, textColor=GRAY)),
-            Paragraph("Cargo", ParagraphStyle("sh", fontName="Helvetica-Bold",
-                      fontSize=8, textColor=GRAY)),
-            Paragraph("Localidade", ParagraphStyle("sh", fontName="Helvetica-Bold",
-                      fontSize=8, textColor=GRAY)),
-            Paragraph("Horário", ParagraphStyle("sh", fontName="Helvetica-Bold",
-                      fontSize=8, textColor=GRAY, alignment=TA_RIGHT)),
+            Paragraph("#", ParagraphStyle("sh", fontName="Helvetica-Bold", fontSize=8, textColor=GRAY, alignment=TA_RIGHT)),
+            Paragraph("Nome", ParagraphStyle("sh", fontName="Helvetica-Bold", fontSize=8, textColor=GRAY)),
+            Paragraph("Cargo", ParagraphStyle("sh", fontName="Helvetica-Bold", fontSize=8, textColor=GRAY)),
+            Paragraph("Localidade", ParagraphStyle("sh", fontName="Helvetica-Bold", fontSize=8, textColor=GRAY)),
+            Paragraph("Horário", ParagraphStyle("sh", fontName="Helvetica-Bold", fontSize=8, textColor=GRAY, alignment=TA_RIGHT)),
         ]
         tbl_data.append(sub)
-
         for i, (_, row) in enumerate(grp.iterrows(), 1):
             tbl_data.append([
                 Paragraph(str(i), sR),
@@ -402,72 +383,41 @@ def gerar_pdf_presencas(df_pr: pd.DataFrame, nome_reuniao: str,
                 Paragraph(str(row.get("Localidade", "")), sN),
                 Paragraph(str(row.get("Hora", "")), sR),
             ])
-
-        # Sub-total do grupo
-        tbl_data.append([
-            "", "",
-            Paragraph(f"Subtotal: {len(grp)}", sTot),
-            "", ""
-        ])
-
+        tbl_data.append(["", "", Paragraph(f"Subtotal: {len(grp)}", sTot), "", ""])
         tbl = Table(tbl_data, colWidths=COL_W, repeatRows=1)
         n_rows = len(tbl_data)
-        style_cmds = [
-            # Cabeçalho do grupo — linha 0 — span total
+        tbl.setStyle(TableStyle([
             ("SPAN",       (0, 0), (-1, 0)),
             ("BACKGROUND", (0, 0), (-1, 0), NAVY),
             ("TOPPADDING",    (0, 0), (-1, 0), 5),
             ("BOTTOMPADDING", (0, 0), (-1, 0), 5),
-            # Sub-header — linha 1
             ("BACKGROUND", (0, 1), (-1, 1), LIGHT),
             ("LINEBELOW",  (0, 1), (-1, 1), 0.5, TEAL),
-            # Linhas de dados — zebra suave
-            ("ROWBACKGROUNDS", (0, 2), (-1, n_rows-2),
-             [colors.white, colors.HexColor("#F7FBFA")]),
+            ("ROWBACKGROUNDS", (0, 2), (-1, n_rows-2), [colors.white, colors.HexColor("#F7FBFA")]),
             ("FONTSIZE",   (0, 2), (-1, n_rows-2), 9),
-            # Sub-total
             ("BACKGROUND", (0, n_rows-1), (-1, n_rows-1), LIGHT),
             ("SPAN",       (2, n_rows-1), (-1, n_rows-1)),
             ("TOPPADDING",    (0, n_rows-1), (-1, n_rows-1), 4),
             ("BOTTOMPADDING", (0, n_rows-1), (-1, n_rows-1), 4),
-            # Grade
-            ("GRID",       (0, 1), (-1, n_rows-2), 0.3,
-             colors.HexColor("#CCCCCC")),
+            ("GRID",       (0, 1), (-1, n_rows-2), 0.3, colors.HexColor("#CCCCCC")),
             ("LINEBELOW",  (0, n_rows-1), (-1, n_rows-1), 1, TEAL),
-            # Padding geral
             ("LEFTPADDING",  (0, 0), (-1, -1), 5),
             ("RIGHTPADDING", (0, 0), (-1, -1), 5),
             ("TOPPADDING",   (0, 2), (-1, n_rows-2), 4),
             ("BOTTOMPADDING",(0, 2), (-1, n_rows-2), 4),
-        ]
-        tbl.setStyle(TableStyle(style_cmds))
+        ]))
         story.append(tbl)
         story.append(Spacer(1, 0.35*cm))
 
-    # ---- TOTAIS FINAIS ----
     story.append(Spacer(1, 0.3*cm))
-    ausentes  = total_membros - presentes
-    pct       = round(presentes / total_membros * 100) if total_membros else 0
-    tot_data  = [
-        [Paragraph("RESUMO GERAL", ParagraphStyle(
-            "rg", fontName="Helvetica-Bold", fontSize=11,
-            textColor=WHITE, alignment=TA_CENTER)), ""],
-        [Paragraph("Total de membros", sTot),
-         Paragraph(str(total_membros), ParagraphStyle(
-             "tv", fontName="Helvetica-Bold", fontSize=11,
-             textColor=NAVY, alignment=TA_RIGHT))],
-        [Paragraph("Presentes", sTot),
-         Paragraph(str(presentes), ParagraphStyle(
-             "tv", fontName="Helvetica-Bold", fontSize=11,
-             textColor=colors.HexColor("#2e7d52"), alignment=TA_RIGHT))],
-        [Paragraph("Ausentes", sTot),
-         Paragraph(str(ausentes), ParagraphStyle(
-             "tv", fontName="Helvetica-Bold", fontSize=11,
-             textColor=colors.HexColor("#c0392b"), alignment=TA_RIGHT))],
-        [Paragraph("Frequência", sTot),
-         Paragraph(f"{pct}%", ParagraphStyle(
-             "tv", fontName="Helvetica-Bold", fontSize=13,
-             textColor=TEAL, alignment=TA_RIGHT))],
+    ausentes = total_membros - presentes
+    pct      = round(presentes / total_membros * 100) if total_membros else 0
+    tot_data = [
+        [Paragraph("RESUMO GERAL", ParagraphStyle("rg", fontName="Helvetica-Bold", fontSize=11, textColor=WHITE, alignment=TA_CENTER)), ""],
+        [Paragraph("Total de membros", sTot), Paragraph(str(total_membros), ParagraphStyle("tv", fontName="Helvetica-Bold", fontSize=11, textColor=NAVY, alignment=TA_RIGHT))],
+        [Paragraph("Presentes", sTot), Paragraph(str(presentes), ParagraphStyle("tv", fontName="Helvetica-Bold", fontSize=11, textColor=colors.HexColor("#2e7d52"), alignment=TA_RIGHT))],
+        [Paragraph("Ausentes", sTot), Paragraph(str(ausentes), ParagraphStyle("tv", fontName="Helvetica-Bold", fontSize=11, textColor=colors.HexColor("#c0392b"), alignment=TA_RIGHT))],
+        [Paragraph("Frequência", sTot), Paragraph(f"{pct}%", ParagraphStyle("tv", fontName="Helvetica-Bold", fontSize=13, textColor=TEAL, alignment=TA_RIGHT))],
     ]
     tot_tbl = Table(tot_data, colWidths=[10*cm, 5.7*cm])
     tot_tbl.setStyle(TableStyle([
@@ -475,9 +425,7 @@ def gerar_pdf_presencas(df_pr: pd.DataFrame, nome_reuniao: str,
         ("BACKGROUND", (0, 0), (-1, 0), NAVY),
         ("TOPPADDING",    (0, 0), (-1, 0), 7),
         ("BOTTOMPADDING", (0, 0), (-1, 0), 7),
-        ("BACKGROUND", (0, 1), (-1, -1), LIGHT),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1),
-         [colors.white, colors.HexColor("#EAF4EF")]),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#EAF4EF")]),
         ("GRID",  (0, 1), (-1, -1), 0.3, colors.HexColor("#CCCCCC")),
         ("BOX",   (0, 0), (-1, -1), 1.2, TEAL),
         ("LEFTPADDING",  (0, 0), (-1, -1), 10),
@@ -486,7 +434,6 @@ def gerar_pdf_presencas(df_pr: pd.DataFrame, nome_reuniao: str,
         ("BOTTOMPADDING",(0, 1), (-1, -1), 5),
     ]))
     story.append(tot_tbl)
-
     doc.build(story)
     buf.seek(0)
     return buf.read()
@@ -672,21 +619,79 @@ elif pagina == "relat":
     total=len(df_p); presente=len(ids_p); ausente=total-presente
     pct=round(presente/total*100) if total else 0
 
+    # Monta df_pr uma única vez para todas as abas
+    if pres:
+        df_pr = pd.DataFrame([{
+            "Nome": p["participantes"]["nome"],
+            "Cargo": p["participantes"]["cargo"],
+            "Localidade": p["participantes"]["localidade"],
+            "Instrumento": p["participantes"].get("instrumento", ""),
+            "Hora": p.get("horario", "")
+        } for p in pres])
+    else:
+        df_pr = pd.DataFrame()
+
     t_res, t_grf, t_exp = st.tabs(["📋  Presenças","📈  Gráficos","⬇️  Exportar"])
 
     with t_res:
-        c1,c2,c3=st.columns(3)
-        c1.metric("Total",total); c2.metric("Presentes",presente); c3.metric("Ausentes",ausente)
-        st.markdown(f'<div class="prog-wrap"><div class="prog-fill" style="width:{pct}%"></div></div><p class="prog-txt">Frequência: {pct}%</p>',unsafe_allow_html=True)
-        if pres:
-            df_pr=pd.DataFrame([{"Nome":p["participantes"]["nome"],"Cargo":p["participantes"]["cargo"],
-                "Localidade":p["participantes"]["localidade"],"Instrumento":p["participantes"].get("instrumento",""),
-                "Hora":p.get("horario","")} for p in pres])
-            st.dataframe(df_pr,use_container_width=True,hide_index=True)
-        else: st.info("Nenhuma presença registrada.")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total", total)
+        c2.metric("Presentes", presente)
+        c3.metric("Ausentes", ausente)
+        st.markdown(
+            f'<div class="prog-wrap"><div class="prog-fill" style="width:{pct}%"></div></div>'
+            f'<p class="prog-txt">Frequência: {pct}%</p>',
+            unsafe_allow_html=True
+        )
+
+        if not df_pr.empty:
+            st.dataframe(df_pr, use_container_width=True, hide_index=True)
+
+            # ---- Botão Limpar Lista ----
+            st.markdown("<hr style='border:none;border-top:1px solid rgba(192,57,43,.25);margin:18px 0 10px'>", unsafe_allow_html=True)
+
+            # Estado de confirmação
+            if "confirmar_limpar" not in st.session_state:
+                st.session_state.confirmar_limpar = False
+            # Resetar confirmação ao trocar de reunião
+            if st.session_state.get("_limpar_sel") != sel:
+                st.session_state.confirmar_limpar = False
+                st.session_state["_limpar_sel"] = sel
+
+            if not st.session_state.confirmar_limpar:
+                if st.button("🗑️ Limpar Lista de Presenças",
+                             key="btn_limpar", use_container_width=True):
+                    st.session_state.confirmar_limpar = True
+                    st.rerun()
+            else:
+                st.markdown(
+                    f'<div class="fb-erro"><p class="fb-t">⚠️ Tem certeza? Isso apagará '
+                    f'<b>{presente} presença(s)</b> da reunião <b>{sel}</b>. '
+                    f'Esta ação não pode ser desfeita!</p></div>',
+                    unsafe_allow_html=True
+                )
+                cc1, cc2 = st.columns(2)
+                with cc1:
+                    if st.button("❌ Cancelar", key="btn_limpar_cancel",
+                                 use_container_width=True):
+                        st.session_state.confirmar_limpar = False
+                        st.rerun()
+                with cc2:
+                    if st.button("🗑️ SIM, LIMPAR TUDO", key="btn_limpar_confirm",
+                                 type="primary", use_container_width=True):
+                        supabase.table("presencas").delete().eq(
+                            "meeting_id", reuniao["id"]
+                        ).execute()
+                        st.session_state.confirmar_limpar = False
+                        st.success(
+                            f"✅ Lista de presenças de '{sel}' limpa com sucesso!"
+                        )
+                        st.rerun()
+        else:
+            st.info("Nenhuma presença registrada.")
 
     with t_grf:
-        if pres:
+        if not df_pr.empty:
             fig1=px.pie(df_pr,names="Instrumento",title="Por Instrumento",
                 color_discrete_sequence=["#1C3D5A","#49656C","#5DB196","#98CDBD","#A5A5A5","#60b4d4"])
             fig1.update_layout(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",font_color="#e2e8f0")
@@ -697,21 +702,11 @@ elif pagina == "relat":
         else: st.info("Sem dados para gráfico.")
 
     with t_exp:
-        if not pres:
+        if df_pr.empty:
             st.info("Nenhuma presença para exportar.")
         else:
-            if "df_pr" not in dir():
-                df_pr = pd.DataFrame([{
-                    "Nome": p["participantes"]["nome"],
-                    "Cargo": p["participantes"]["cargo"],
-                    "Localidade": p["participantes"]["localidade"],
-                    "Instrumento": p["participantes"].get("instrumento", ""),
-                    "Hora": p.get("horario", "")
-                } for p in pres])
-
             col_xl, col_pdf = st.columns(2)
 
-            # ---- Excel ----
             with col_xl:
                 xlsx_buf=BytesIO(); wb=Workbook(); ws=wb.active; ws.title="Presenças"
                 fill_h=PatternFill("solid",fgColor="1C3D5A"); font_h=Font(color="FFFFFF",bold=True)
@@ -729,7 +724,6 @@ elif pagina == "relat":
                     use_container_width=True
                 )
 
-            # ---- PDF ----
             with col_pdf:
                 if not RL_OK:
                     st.error("❌ Instale: pip install reportlab")
@@ -737,9 +731,7 @@ elif pagina == "relat":
                     if st.button("📄 Gerar PDF", type="primary",
                                  key="btn_pdf_pres", use_container_width=True):
                         with st.spinner("Gerando PDF..."):
-                            pdf_bytes = gerar_pdf_presencas(
-                                df_pr, sel, total, presente
-                            )
+                            pdf_bytes = gerar_pdf_presencas(df_pr, sel, total, presente)
                         st.download_button(
                             "⬇️ Baixar PDF", data=pdf_bytes,
                             file_name=f"presencas_{sel}.pdf",
