@@ -11,6 +11,7 @@ from PIL import Image, ImageEnhance, ImageFilter
 import numpy as np
 import plotly.express as px
 import io
+import uuid
 
 try:
     import qrcode
@@ -69,33 +70,6 @@ CSS = """
     padding:3px 13px; color:#98CDBD;
     font-size:.68rem; font-weight:700;
     letter-spacing:1px; text-transform:uppercase;
-}
-
-/* ===== NAV ===== */
-div[data-testid="stHorizontalBlock"].nav-row {
-    gap: 6px !important;
-    padding: 12px 0 4px !important;
-    border-bottom: 1px solid rgba(93,177,150,.15) !important;
-    margin-bottom: 18px !important;
-}
-.nav-row div[data-testid="column"] .stButton > button {
-    width: 100% !important;
-    padding: 10px 6px !important;
-    border-radius: 10px !important;
-    font-size: .78rem !important;
-    font-weight: 700 !important;
-    letter-spacing: .5px !important;
-    text-transform: uppercase !important;
-    color: #A5A5A5 !important;
-    background: rgba(255,255,255,.03) !important;
-    border: 1px solid rgba(255,255,255,.07) !important;
-    transition: all .17s !important;
-    min-height: 42px !important;
-}
-.nav-row div[data-testid="column"] .stButton > button:hover {
-    background: rgba(93,177,150,.1) !important;
-    color: #98CDBD !important;
-    border-color: rgba(93,177,150,.35) !important;
 }
 
 /* ===== PAGE HEADER ===== */
@@ -162,6 +136,7 @@ div[data-testid="stHorizontalBlock"].nav-row {
 .re-meta { color:#A5A5A5; font-size:.74rem; margin:2px 0 0; }
 .badge-h { background:#5DB196; color:#0e1c2a; font-size:.6rem; font-weight:800; padding:2px 9px; border-radius:99px; text-transform:uppercase; letter-spacing:1px; }
 .badge-f { background:rgba(93,177,150,.1); color:#98CDBD; border:1px solid rgba(93,177,150,.28); font-size:.6rem; font-weight:700; padding:2px 9px; border-radius:99px; }
+.badge-p { background:rgba(192,57,43,.15); color:#f1948a; border:1px solid rgba(192,57,43,.3); font-size:.6rem; font-weight:700; padding:2px 9px; border-radius:99px; }
 
 /* ===== FEEDBACK ===== */
 .fb-ok   { background:linear-gradient(135deg,#0a2e20,#0d3d29); border:1px solid #5DB196; border-radius:13px; padding:18px 22px; text-align:center; margin:10px 0; animation:bounceIn .35s ease; }
@@ -279,12 +254,16 @@ def load_participantes():
     return pd.DataFrame(r.data) if r.data else pd.DataFrame()
 
 def load_reunioes():
-    return supabase.table("reunioes").select("*").execute().data or []
+    return supabase.table("reunioes").select("*").order("data", desc=True).execute().data or []
 
 def load_presencas(meeting_id=None):
     q = supabase.table("presencas").select("*, participantes(nome,cargo,localidade,instrumento)")
     if meeting_id: q = q.eq("meeting_id", meeting_id)
     return q.execute().data or []
+
+def contar_presencas_por_reuniao(meeting_id):
+    r = supabase.table("presencas").select("id", count="exact").eq("meeting_id", meeting_id).execute()
+    return r.count if r.count is not None else len(r.data or [])
 
 def gerar_pdf_membros(membros: list) -> bytes:
     NAVY=colors.HexColor("#1C3D5A"); TEAL=colors.HexColor("#5DB196")
@@ -440,13 +419,14 @@ def gerar_pdf_presencas(df_pr: pd.DataFrame, nome_reuniao: str,
 
 
 # -------------------------------------------------------
-# NAVEGACAO
+# NAVEGACAO — agora com 5 páginas
 # -------------------------------------------------------
 PAGINAS = [
     ("home",    "🏠", "Painel"),
     ("checkin", "📷", "Check-in"),
     ("relat",   "📊", "Relatórios"),
     ("membros", "👥", "Membros"),
+    ("reunioes","📅", "Reuniões"),
 ]
 
 if "pagina" not in st.session_state:
@@ -467,8 +447,7 @@ st.markdown('''
 
 st.markdown('<div style="height:12px"></div>', unsafe_allow_html=True)
 
-st.markdown('<div class="nav-row" style="display:flex;gap:6px;padding:10px 0 4px;border-bottom:1px solid rgba(93,177,150,.15);margin-bottom:16px"></div>', unsafe_allow_html=True)
-cols_nav = st.columns(4)
+cols_nav = st.columns(5)
 for i, (key, icon, label) in enumerate(PAGINAS):
     with cols_nav[i]:
         ativo = st.session_state.pagina == key
@@ -619,7 +598,6 @@ elif pagina == "relat":
     total=len(df_p); presente=len(ids_p); ausente=total-presente
     pct=round(presente/total*100) if total else 0
 
-    # Monta df_pr uma única vez para todas as abas
     if pres:
         df_pr = pd.DataFrame([{
             "Nome": p["participantes"]["nome"],
@@ -647,13 +625,10 @@ elif pagina == "relat":
         if not df_pr.empty:
             st.dataframe(df_pr, use_container_width=True, hide_index=True)
 
-            # ---- Botão Limpar Lista ----
             st.markdown("<hr style='border:none;border-top:1px solid rgba(192,57,43,.25);margin:18px 0 10px'>", unsafe_allow_html=True)
 
-            # Estado de confirmação
             if "confirmar_limpar" not in st.session_state:
                 st.session_state.confirmar_limpar = False
-            # Resetar confirmação ao trocar de reunião
             if st.session_state.get("_limpar_sel") != sel:
                 st.session_state.confirmar_limpar = False
                 st.session_state["_limpar_sel"] = sel
@@ -838,3 +813,237 @@ elif pagina == "membros":
                     st.download_button("⬇️ Baixar PDF",data=pdf_b,
                         file_name="qrcodes_ccb.pdf",mime="application/pdf",use_container_width=True)
                     st.success(f"✅ {len(df_sel)} cartão(oes) gerado(s)!")
+
+# ===================================================
+# REUNIÕES — NOVA PÁGINA
+# ===================================================
+elif pagina == "reunioes":
+    st.markdown('''
+    <div class="page-header">
+        <span class="ph-icon">📅</span>
+        <div><p class="ph-title">Reuniões</p>
+        <p class="ph-sub">Cadastro, edição e exclusão de reuniões</p></div>
+    </div>''', unsafe_allow_html=True)
+
+    TIPOS_REUNIAO = [
+        "ENSAIO GERAL",
+        "ENSAIO REGIONAL",
+        "REUNIÃO ORDINÁRIA",
+        "REUNIÃO EXTRAORDINÁRIA",
+        "CONGRESSO",
+        "CULTO ESPECIAL",
+        "OUTRO",
+    ]
+
+    reun = load_reunioes()
+    hoje = agora_br().date()
+
+    t_lista, t_add, t_edit, t_del = st.tabs([
+        "📋  Lista", "➕  Nova Reunião", "✏️  Editar", "🗑️  Excluir"
+    ])
+
+    # --------------------------------------------------
+    # LISTA
+    # --------------------------------------------------
+    with t_lista:
+        if not reun:
+            st.markdown('''
+            <div class="fb-idle">
+                <p class="fb-t">📭 Nenhuma reunião cadastrada ainda.<br>
+                Clique em <b>➕ Nova Reunião</b> para começar.</p>
+            </div>''', unsafe_allow_html=True)
+        else:
+            # Stat cards rápidos
+            futuras  = sum(1 for r in reun if date.fromisoformat(r["data"]) >= hoje)
+            passadas = len(reun) - futuras
+            st.markdown(f'''
+            <div class="stat-row">
+                <div class="stat-card"><p class="stat-val sv-teal">{len(reun)}</p><p class="stat-lbl">Total</p></div>
+                <div class="stat-card"><p class="stat-val sv-green">{futuras}</p><p class="stat-lbl">Futuras</p></div>
+                <div class="stat-card"><p class="stat-val sv-gray">{passadas}</p><p class="stat-lbl">Realizadas</p></div>
+            </div>''', unsafe_allow_html=True)
+
+            # Filtro por período
+            filtro = st.radio("Exibir", ["Todas", "Futuras / Hoje", "Passadas"],
+                              horizontal=True, key="r_filtro")
+
+            st.markdown('<div class="sec-label">Lista de Reuniões</div>', unsafe_allow_html=True)
+
+            for r in reun:
+                dr = date.fromisoformat(r["data"]) if isinstance(r["data"], str) else r["data"]
+                is_hoje   = dr == hoje
+                is_futura = dr > hoje
+
+                if filtro == "Futuras / Hoje" and not (is_hoje or is_futura):
+                    continue
+                if filtro == "Passadas" and (is_hoje or is_futura):
+                    continue
+
+                # contagem de presenças
+                qtd_pres = contar_presencas_por_reuniao(r["id"])
+
+                if is_hoje:
+                    badge = '<span class="badge-h">Hoje</span>'
+                elif is_futura:
+                    badge = f'<span class="badge-f">{dr.strftime("%d/%m")}</span>'
+                else:
+                    badge = f'<span class="badge-p">Realizada</span>'
+
+                horario_txt = r.get("horario", "") or ""
+                tipo_txt    = r.get("tipo", "") or ""
+                local_txt   = r.get("local", "") or ""
+                obs_txt     = r.get("observacoes", "") or ""
+
+                meta_parts = []
+                if horario_txt: meta_parts.append(f"🕐 {horario_txt}")
+                meta_parts.append(f"📅 {dr.strftime('%d/%m/%Y')}")
+                if tipo_txt:    meta_parts.append(f"📌 {tipo_txt}")
+                if local_txt:   meta_parts.append(f"📍 {local_txt}")
+                meta_parts.append(f"👥 {qtd_pres} presença(s)")
+
+                meta_str = " &nbsp;·&nbsp; ".join(meta_parts)
+
+                obs_html = f'<p style="color:#A5A5A5;font-size:.7rem;margin:3px 0 0;font-style:italic">📝 {obs_txt}</p>' if obs_txt else ""
+
+                st.markdown(f'''
+                <div class="re-card">
+                    <div style="flex:1">
+                        <p class="re-nome">{r["nome"]}</p>
+                        <p class="re-meta">{meta_str}</p>
+                        {obs_html}
+                    </div>
+                    {badge}
+                </div>''', unsafe_allow_html=True)
+
+    # --------------------------------------------------
+    # NOVA REUNIÃO
+    # --------------------------------------------------
+    with t_add:
+        st.markdown('<div class="sec-label">Nova Reunião</div>', unsafe_allow_html=True)
+
+        col1, col2 = st.columns(2)
+        r_nome  = col1.text_input("Nome / Descrição", placeholder="Ex: Ensaio Geral — Junho 2026", key="r_nome").strip()
+        r_data  = col2.date_input("Data", value=hoje, key="r_data")
+        r_tipo  = col1.selectbox("Tipo", TIPOS_REUNIAO, key="r_tipo")
+        r_hora  = col2.text_input("Horário (ex: 19:30)", placeholder="19:30", key="r_hora").strip()
+        r_local = col1.text_input("Local", placeholder="Ex: Salão Principal", key="r_local").strip()
+        r_obs   = col2.text_area("Observações (opcional)", height=80, key="r_obs").strip()
+
+        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+        if st.button("➕ Cadastrar Reunião", type="primary", key="btn_r_add", use_container_width=True):
+            if not r_nome:
+                st.warning("⚠️ Preencha o nome da reunião.")
+            else:
+                # Verifica duplicidade de nome + data
+                dup = [x for x in reun if x["nome"].upper() == r_nome.upper()
+                       and x["data"] == r_data.isoformat()]
+                if dup:
+                    st.error(f"❌ Já existe uma reunião com esse nome nessa data.")
+                else:
+                    novo_id = str(uuid.uuid4())
+                    payload = {
+                        "id":   novo_id,
+                        "nome": r_nome,
+                        "data": r_data.isoformat(),
+                        "tipo": r_tipo,
+                        "horario": r_hora,
+                        "local":   r_local,
+                        "observacoes": r_obs,
+                    }
+                    supabase.table("reunioes").insert(payload).execute()
+                    st.success(f"✅ Reunião **{r_nome}** cadastrada com sucesso!")
+                    st.balloons()
+                    st.rerun()
+
+    # --------------------------------------------------
+    # EDITAR
+    # --------------------------------------------------
+    with t_edit:
+        if not reun:
+            st.info("Nenhuma reunião para editar.")
+        else:
+            opts_e = [f"{r['nome']}  ({r['data']})" for r in reun]
+            sel_e  = st.selectbox("Selecione a reunião", opts_e, key="re_sel_e")
+            idx_e  = opts_e.index(sel_e)
+            re     = reun[idx_e]
+
+            dr_atual = date.fromisoformat(re["data"]) if isinstance(re["data"], str) else re["data"]
+            tipo_idx = TIPOS_REUNIAO.index(re.get("tipo","ENSAIO GERAL")) if re.get("tipo") in TIPOS_REUNIAO else 0
+
+            st.markdown('<div class="sec-label">Editar Dados</div>', unsafe_allow_html=True)
+            col1, col2 = st.columns(2)
+            e_nome  = col1.text_input("Nome / Descrição", value=re["nome"], key="re_e_nome").strip()
+            e_data  = col2.date_input("Data", value=dr_atual, key="re_e_data")
+            e_tipo  = col1.selectbox("Tipo", TIPOS_REUNIAO, index=tipo_idx, key="re_e_tipo")
+            e_hora  = col2.text_input("Horário", value=re.get("horario","") or "", key="re_e_hora").strip()
+            e_local = col1.text_input("Local", value=re.get("local","") or "", key="re_e_local").strip()
+            e_obs   = col2.text_area("Observações", value=re.get("observacoes","") or "", height=80, key="re_e_obs").strip()
+
+            if st.button("💾 Salvar Alterações", type="primary", key="btn_re_edit", use_container_width=True):
+                if not e_nome:
+                    st.warning("⚠️ O nome não pode ficar vazio.")
+                else:
+                    supabase.table("reunioes").update({
+                        "nome": e_nome,
+                        "data": e_data.isoformat(),
+                        "tipo": e_tipo,
+                        "horario": e_hora,
+                        "local":   e_local,
+                        "observacoes": e_obs,
+                    }).eq("id", re["id"]).execute()
+                    st.success(f"✅ Reunião **{e_nome}** atualizada!")
+                    st.rerun()
+
+    # --------------------------------------------------
+    # EXCLUIR
+    # --------------------------------------------------
+    with t_del:
+        if not reun:
+            st.info("Nenhuma reunião para excluir.")
+        else:
+            opts_d = [f"{r['nome']}  ({r['data']})" for r in reun]
+            sel_d  = st.selectbox("Selecione a reunião para excluir", opts_d, key="re_sel_d")
+            idx_d  = opts_d.index(sel_d)
+            re_d   = reun[idx_d]
+
+            qtd_pres_d = contar_presencas_por_reuniao(re_d["id"])
+
+            st.markdown(
+                f'<div class="fb-erro"><p class="fb-t">⚠️ Você está prestes a excluir:'
+                f'<br><b>{re_d["nome"]}</b> ({re_d["data"]})'
+                f'<br>Esta ação irá remover também <b>{qtd_pres_d} presença(s)</b> vinculada(s).'
+                f'<br>Esta ação <u>não pode ser desfeita</u>!</p></div>',
+                unsafe_allow_html=True
+            )
+
+            # Confirmação com chave única por reunião
+            chave_confirm = f"confirm_del_reun_{re_d['id']}"
+            if chave_confirm not in st.session_state:
+                st.session_state[chave_confirm] = False
+
+            # Resetar ao trocar seleção
+            if st.session_state.get("_del_reun_sel") != sel_d:
+                for k in list(st.session_state.keys()):
+                    if k.startswith("confirm_del_reun_"):
+                        st.session_state[k] = False
+                st.session_state["_del_reun_sel"] = sel_d
+
+            if not st.session_state[chave_confirm]:
+                if st.button("🗑️ Excluir Reunião", key="btn_re_del_init", use_container_width=True):
+                    st.session_state[chave_confirm] = True
+                    st.rerun()
+            else:
+                cd1, cd2 = st.columns(2)
+                with cd1:
+                    if st.button("❌ Cancelar", key="btn_re_del_cancel", use_container_width=True):
+                        st.session_state[chave_confirm] = False
+                        st.rerun()
+                with cd2:
+                    if st.button("🗑️ SIM, EXCLUIR", type="primary",
+                                 key="btn_re_del_confirm", use_container_width=True):
+                        supabase.table("presencas").delete().eq("meeting_id", re_d["id"]).execute()
+                        supabase.table("reunioes").delete().eq("id", re_d["id"]).execute()
+                        st.session_state[chave_confirm] = False
+                        st.success(f"✅ Reunião '{re_d['nome']}' excluída com sucesso!")
+                        st.rerun()
