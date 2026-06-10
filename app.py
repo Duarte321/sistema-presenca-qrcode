@@ -72,6 +72,33 @@ CSS = """
     letter-spacing:1px; text-transform:uppercase;
 }
 
+/* ===== NAV ===== */
+div[data-testid="stHorizontalBlock"].nav-row {
+    gap: 6px !important;
+    padding: 12px 0 4px !important;
+    border-bottom: 1px solid rgba(93,177,150,.15) !important;
+    margin-bottom: 18px !important;
+}
+.nav-row div[data-testid="column"] .stButton > button {
+    width: 100% !important;
+    padding: 10px 6px !important;
+    border-radius: 10px !important;
+    font-size: .78rem !important;
+    font-weight: 700 !important;
+    letter-spacing: .5px !important;
+    text-transform: uppercase !important;
+    color: #A5A5A5 !important;
+    background: rgba(255,255,255,.03) !important;
+    border: 1px solid rgba(255,255,255,.07) !important;
+    transition: all .17s !important;
+    min-height: 42px !important;
+}
+.nav-row div[data-testid="column"] .stButton > button:hover {
+    background: rgba(93,177,150,.1) !important;
+    color: #98CDBD !important;
+    border-color: rgba(93,177,150,.35) !important;
+}
+
 /* ===== PAGE HEADER ===== */
 .page-header {
     display:flex; align-items:center; gap:12px;
@@ -136,7 +163,7 @@ CSS = """
 .re-meta { color:#A5A5A5; font-size:.74rem; margin:2px 0 0; }
 .badge-h { background:#5DB196; color:#0e1c2a; font-size:.6rem; font-weight:800; padding:2px 9px; border-radius:99px; text-transform:uppercase; letter-spacing:1px; }
 .badge-f { background:rgba(93,177,150,.1); color:#98CDBD; border:1px solid rgba(93,177,150,.28); font-size:.6rem; font-weight:700; padding:2px 9px; border-radius:99px; }
-.badge-p { background:rgba(192,57,43,.15); color:#f1948a; border:1px solid rgba(192,57,43,.3); font-size:.6rem; font-weight:700; padding:2px 9px; border-radius:99px; }
+.badge-p { background:rgba(96,180,212,.15); color:#60b4d4; border:1px solid rgba(96,180,212,.3); font-size:.6rem; font-weight:700; padding:2px 9px; border-radius:99px; }
 
 /* ===== FEEDBACK ===== */
 .fb-ok   { background:linear-gradient(135deg,#0a2e20,#0d3d29); border:1px solid #5DB196; border-radius:13px; padding:18px 22px; text-align:center; margin:10px 0; animation:bounceIn .35s ease; }
@@ -149,8 +176,6 @@ CSS = """
 .fb-erro .fb-t { color:#f1948a; font-size:.9rem; font-weight:700; }
 .fb-idle { background:rgba(28,61,90,.18); border:1px dashed rgba(93,177,150,.28); border-radius:13px; padding:14px 18px; text-align:center; margin:10px 0; }
 .fb-idle .fb-t { color:#98CDBD; font-size:.84rem; }
-.fb-info { background:rgba(28,61,90,.28); border:1px solid rgba(93,177,150,.28); border-radius:13px; padding:14px 18px; text-align:center; margin:10px 0; }
-.fb-info .fb-t { color:#98CDBD; font-size:.84rem; }
 
 /* ===== INPUTS / SELECT ===== */
 input, textarea, [data-baseweb="input"] input {
@@ -262,10 +287,6 @@ def load_presencas(meeting_id=None):
     q = supabase.table("presencas").select("*, participantes(nome,cargo,localidade,instrumento)")
     if meeting_id: q = q.eq("meeting_id", meeting_id)
     return q.execute().data or []
-
-def contar_presencas_por_reuniao(meeting_id):
-    r = supabase.table("presencas").select("id", count="exact").eq("meeting_id", meeting_id).execute()
-    return r.count if r.count is not None else len(r.data or [])
 
 def gerar_pdf_membros(membros: list) -> bytes:
     NAVY=colors.HexColor("#1C3D5A"); TEAL=colors.HexColor("#5DB196")
@@ -424,11 +445,11 @@ def gerar_pdf_presencas(df_pr: pd.DataFrame, nome_reuniao: str,
 # NAVEGACAO
 # -------------------------------------------------------
 PAGINAS = [
-    ("home",     "🏠", "Painel"),
-    ("checkin",  "📷", "Check-in"),
-    ("relat",    "📊", "Relatórios"),
-    ("membros",  "👥", "Membros"),
-    ("reunioes", "📅", "Reuniões"),
+    ("home",    "🏠", "Painel"),
+    ("checkin", "📷", "Check-in"),
+    ("relat",   "📊", "Relatórios"),
+    ("membros", "👥", "Membros"),
+    ("reunioes","📅", "Reuniões"),
 ]
 
 if "pagina" not in st.session_state:
@@ -509,45 +530,16 @@ if pagina == "home":
     if proxima:
         r, dr = proxima
         badge = '<span class="badge-h">Hoje</span>' if dr==hoje else f'<span class="badge-f">{dr.strftime("%d/%m")}</span>'
-        tipo_txt  = r.get("tipo","") or ""
-        local_txt = r.get("local","") or ""
-        hora_txt  = r.get("horario","") or ""
-        meta_parts = []
-        if hora_txt:  meta_parts.append(f"🕐 {hora_txt}")
-        meta_parts.append(f"📅 {dr.strftime('%d/%m/%Y')}")
-        if tipo_txt:  meta_parts.append(f"📌 {tipo_txt}")
-        if local_txt: meta_parts.append(f"📍 {local_txt}")
-        meta_str = " &nbsp;·&nbsp; ".join(meta_parts)
         st.markdown(f'''
         <div class="re-card">
             <div>
                 <p class="re-nome">{r["nome"]}</p>
-                <p class="re-meta">{meta_str}</p>
+                <p class="re-meta">{r.get("horario","")} &nbsp;·&nbsp; {dr.strftime("%d/%m/%Y")}</p>
             </div>
             {badge}
         </div>''', unsafe_allow_html=True)
     else:
-        st.markdown('''
-        <div class="fb-idle">
-            <p class="fb-t">📭 Nenhuma reunião futura agendada.<br>
-            Acesse <b>📅 Reuniões</b> para cadastrar uma nova.</p>
-        </div>''', unsafe_allow_html=True)
-
-    # Últimas reuniões realizadas
-    realizadas = [r for r in reun if date.fromisoformat(r["data"]) < agora_br().date()][:3]
-    if realizadas:
-        st.markdown('<div class="sec-label">📋 Últimas Realizadas</div>', unsafe_allow_html=True)
-        for r in realizadas:
-            dr = date.fromisoformat(r["data"])
-            qtd = contar_presencas_por_reuniao(r["id"])
-            st.markdown(f'''
-            <div class="re-card">
-                <div>
-                    <p class="re-nome">{r["nome"]}</p>
-                    <p class="re-meta">📅 {dr.strftime("%d/%m/%Y")} &nbsp;·&nbsp; 👥 {qtd} presença(s)</p>
-                </div>
-                <span class="badge-p">Realizada</span>
-            </div>''', unsafe_allow_html=True)
+        st.info("Nenhuma reunião futura agendada.")
 
 # ===================================================
 # CHECK-IN
@@ -846,233 +838,211 @@ elif pagina == "membros":
                     st.success(f"✅ {len(df_sel)} cartão(oes) gerado(s)!")
 
 # ===================================================
-# REUNIÕES — GERENCIAMENTO COMPLETO
+# REUNIOES — GERENCIAMENTO COMPLETO
 # ===================================================
 elif pagina == "reunioes":
     st.markdown('''
     <div class="page-header">
         <span class="ph-icon">📅</span>
         <div><p class="ph-title">Reuniões</p>
-        <p class="ph-sub">Cadastro, edição e exclusão de reuniões</p></div>
+        <p class="ph-sub">Criação, edição e exclusão de reuniões</p></div>
     </div>''', unsafe_allow_html=True)
 
     TIPOS_REUNIAO = [
-        "ENSAIO GERAL",
-        "ENSAIO REGIONAL",
-        "REUNIÃO ORDINÁRIA",
-        "REUNIÃO EXTRAORDINÁRIA",
-        "CONGRESSO",
-        "CULTO ESPECIAL",
-        "OUTRO",
+        "Ensaio Geral",
+        "Ensaio de Naipes",
+        "Reunião Ordinária",
+        "Reunião Extraordinária",
+        "Culto Especial",
+        "Outro",
     ]
 
     reun = load_reunioes()
-    hoje = agora_br().date()
 
     t_lista, t_add, t_edit, t_del = st.tabs([
         "📋  Lista", "➕  Nova Reunião", "✏️  Editar", "🗑️  Excluir"
     ])
 
-    # --------------------------------------------------
-    # LISTA
-    # --------------------------------------------------
+    # ---- LISTA ----
     with t_lista:
+        hoje = agora_br().date()
+        futuras  = [r for r in reun if date.fromisoformat(r["data"]) >= hoje]
+        passadas = [r for r in reun if date.fromisoformat(r["data"]) <  hoje]
+
+        # Stat cards rápidos
+        tf = len(futuras); tp_r = len(passadas); tt = len(reun)
+        st.markdown(f'''
+        <div class="stat-row">
+            <div class="stat-card"><p class="stat-val sv-blue">{tt}</p><p class="stat-lbl">Total</p></div>
+            <div class="stat-card"><p class="stat-val sv-green">{tf}</p><p class="stat-lbl">Futuras</p></div>
+            <div class="stat-card"><p class="stat-val sv-gray">{tp_r}</p><p class="stat-lbl">Passadas</p></div>
+        </div>
+        ''', unsafe_allow_html=True)
+
         if not reun:
-            st.markdown('''
-            <div class="fb-idle">
-                <p class="fb-t">📭 Nenhuma reunião cadastrada ainda.<br>
-                Clique em <b>➕ Nova Reunião</b> para começar.</p>
-            </div>''', unsafe_allow_html=True)
+            st.info("Nenhuma reunião cadastrada. Crie a primeira na aba ➕ Nova Reunião.")
         else:
-            futuras  = sum(1 for r in reun if date.fromisoformat(r["data"]) >= hoje)
-            passadas = len(reun) - futuras
-            st.markdown(f'''
-            <div class="stat-row">
-                <div class="stat-card"><p class="stat-val sv-teal">{len(reun)}</p><p class="stat-lbl">Total</p></div>
-                <div class="stat-card"><p class="stat-val sv-green">{futuras}</p><p class="stat-lbl">Futuras / Hoje</p></div>
-                <div class="stat-card"><p class="stat-val sv-gray">{passadas}</p><p class="stat-lbl">Realizadas</p></div>
-            </div>''', unsafe_allow_html=True)
+            st.markdown('<div class="sec-label">📅 Próximas</div>', unsafe_allow_html=True)
+            if futuras:
+                for r in sorted(futuras, key=lambda x: x["data"]):
+                    dr = date.fromisoformat(r["data"])
+                    badge = '<span class="badge-h">Hoje</span>' if dr == hoje else f'<span class="badge-p">{dr.strftime("%d/%m")}</span>'
+                    tipo_str = f" &nbsp;·&nbsp; {r['tipo']}" if r.get("tipo") else ""
+                    st.markdown(f'''
+                    <div class="re-card">
+                        <div>
+                            <p class="re-nome">{r["nome"]}</p>
+                            <p class="re-meta">{r.get("horario","")} &nbsp;·&nbsp; {dr.strftime("%d/%m/%Y")}{tipo_str}</p>
+                        </div>
+                        {badge}
+                    </div>''', unsafe_allow_html=True)
+            else:
+                st.info("Nenhuma reunião futura agendada.")
 
-            filtro = st.radio("Exibir", ["Todas", "Futuras / Hoje", "Passadas"],
-                              horizontal=True, key="r_filtro")
+            st.markdown('<div class="sec-label">🗂️ Passadas</div>', unsafe_allow_html=True)
+            if passadas:
+                for r in sorted(passadas, key=lambda x: x["data"], reverse=True)[:10]:
+                    dr = date.fromisoformat(r["data"])
+                    tipo_str = f" &nbsp;·&nbsp; {r['tipo']}" if r.get("tipo") else ""
+                    n_pres = len(supabase.table("presencas").select("id").eq("meeting_id", r["id"]).execute().data or [])
+                    st.markdown(f'''
+                    <div class="re-card" style="opacity:.75">
+                        <div>
+                            <p class="re-nome">{r["nome"]}</p>
+                            <p class="re-meta">{dr.strftime("%d/%m/%Y")}{tipo_str} &nbsp;·&nbsp; {n_pres} presente(s)</p>
+                        </div>
+                        <span class="badge-f">Realizada</span>
+                    </div>''', unsafe_allow_html=True)
+            else:
+                st.info("Nenhuma reunião passada.")
 
-            st.markdown('<div class="sec-label">Lista de Reuniões</div>', unsafe_allow_html=True)
-
-            exibiu = False
-            for r in reun:
-                dr = date.fromisoformat(r["data"]) if isinstance(r["data"], str) else r["data"]
-                is_hoje   = dr == hoje
-                is_futura = dr > hoje
-
-                if filtro == "Futuras / Hoje" and not (is_hoje or is_futura):
-                    continue
-                if filtro == "Passadas" and (is_hoje or is_futura):
-                    continue
-
-                exibiu = True
-                qtd_pres = contar_presencas_por_reuniao(r["id"])
-
-                if is_hoje:
-                    badge = '<span class="badge-h">Hoje</span>'
-                elif is_futura:
-                    badge = f'<span class="badge-f">{dr.strftime("%d/%m")}</span>'
-                else:
-                    badge = f'<span class="badge-p">Realizada</span>'
-
-                horario_txt = r.get("horario", "") or ""
-                tipo_txt    = r.get("tipo", "") or ""
-                local_txt   = r.get("local", "") or ""
-                obs_txt     = r.get("observacoes", "") or ""
-
-                meta_parts = []
-                if horario_txt: meta_parts.append(f"🕐 {horario_txt}")
-                meta_parts.append(f"📅 {dr.strftime('%d/%m/%Y')}")
-                if tipo_txt:    meta_parts.append(f"📌 {tipo_txt}")
-                if local_txt:   meta_parts.append(f"📍 {local_txt}")
-                meta_parts.append(f"👥 {qtd_pres} presença(s)")
-
-                meta_str = " &nbsp;·&nbsp; ".join(meta_parts)
-                obs_html = f'<p style="color:#A5A5A5;font-size:.7rem;margin:3px 0 0;font-style:italic">📝 {obs_txt}</p>' if obs_txt else ""
-
-                st.markdown(f'''
-                <div class="re-card">
-                    <div style="flex:1">
-                        <p class="re-nome">{r["nome"]}</p>
-                        <p class="re-meta">{meta_str}</p>
-                        {obs_html}
-                    </div>
-                    {badge}
-                </div>''', unsafe_allow_html=True)
-
-            if not exibiu:
-                st.markdown('<div class="fb-idle"><p class="fb-t">Nenhuma reunião nesse filtro.</p></div>', unsafe_allow_html=True)
-
-    # --------------------------------------------------
-    # NOVA REUNIÃO
-    # --------------------------------------------------
+    # ---- NOVA REUNIÃO ----
     with t_add:
         st.markdown('<div class="sec-label">Nova Reunião</div>', unsafe_allow_html=True)
-
         col1, col2 = st.columns(2)
-        r_nome  = col1.text_input("Nome / Descrição *", placeholder="Ex: Ensaio Geral — Junho 2026", key="r_nome").strip()
-        r_data  = col2.date_input("Data *", value=hoje, key="r_data")
-        r_tipo  = col1.selectbox("Tipo *", TIPOS_REUNIAO, key="r_tipo")
-        r_hora  = col2.text_input("Horário (ex: 19:30)", placeholder="19:30", key="r_hora").strip()
-        r_local = col1.text_input("Local", placeholder="Ex: Salão Principal", key="r_local").strip()
-        r_obs   = col2.text_area("Observações (opcional)", height=80, key="r_obs").strip()
+        r_nome  = col1.text_input("Nome da Reunião (ex: Ensaio 14/06)", key="r_nome").strip()
+        r_tipo  = col2.selectbox("Tipo", TIPOS_REUNIAO, key="r_tipo")
+        r_data  = col1.date_input("Data", value=agora_br().date(), key="r_data")
+        r_hora  = col2.time_input("Horário", value=datetime.strptime("08:00", "%H:%M").time(), key="r_hora")
+        r_obs   = st.text_area("Observações (opcional)", key="r_obs", height=80).strip()
 
-        st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
-        if st.button("➕ Cadastrar Reunião", type="primary", key="btn_r_add", use_container_width=True):
+        if st.button("➕ Criar Reunião", type="primary", key="btn_criar_reun", use_container_width=True):
             if not r_nome:
-                st.warning("⚠️ Preencha o nome da reunião.")
+                st.warning("⚠️ Informe o nome da reunião.")
             else:
-                dup = [x for x in reun if x["nome"].upper() == r_nome.upper()
-                       and x["data"] == r_data.isoformat()]
-                if dup:
-                    st.error("❌ Já existe uma reunião com esse nome nessa data.")
+                # Verifica duplicidade de nome+data
+                dup = supabase.table("reunioes").select("id") \
+                    .eq("nome", r_nome).eq("data", str(r_data)).execute()
+                if dup.data:
+                    st.error(f"❌ Já existe uma reunião '{r_nome}' em {r_data.strftime('%d/%m/%Y')}.")
                 else:
                     novo_id = str(uuid.uuid4())
-                    payload = {
-                        "id":          novo_id,
-                        "nome":        r_nome,
-                        "data":        r_data.isoformat(),
-                        "tipo":        r_tipo,
-                        "horario":     r_hora,
-                        "local":       r_local,
+                    supabase.table("reunioes").insert({
+                        "id": novo_id,
+                        "nome": r_nome,
+                        "tipo": r_tipo,
+                        "data": str(r_data),
+                        "horario": r_hora.strftime("%H:%M"),
                         "observacoes": r_obs,
-                    }
-                    supabase.table("reunioes").insert(payload).execute()
-                    st.success(f"✅ Reunião **{r_nome}** cadastrada com sucesso!")
-                    st.balloons()
+                    }).execute()
+                    st.success(f"✅ Reunião **{r_nome}** criada para {r_data.strftime('%d/%m/%Y')} às {r_hora.strftime('%H:%M')}!")
                     st.rerun()
 
-    # --------------------------------------------------
-    # EDITAR
-    # --------------------------------------------------
+    # ---- EDITAR ----
     with t_edit:
         if not reun:
-            st.markdown('<div class="fb-info"><p class="fb-t">Nenhuma reunião cadastrada para editar.</p></div>', unsafe_allow_html=True)
+            st.info("Nenhuma reunião cadastrada.")
         else:
-            opts_e = [f"{r['nome']}  ({r['data']})" for r in reun]
-            sel_e  = st.selectbox("Selecione a reunião para editar", opts_e, key="re_sel_e")
-            idx_e  = opts_e.index(sel_e)
-            re     = reun[idx_e]
+            opts_re = [f"{r['nome']} ({date.fromisoformat(r['data']).strftime('%d/%m/%Y')})" for r in reun]
+            sel_re  = st.selectbox("Selecione a reunião para editar", opts_re, key="sel_re")
+            idx_re  = opts_re.index(sel_re)
+            rr      = reun[idx_re]
 
-            dr_atual  = date.fromisoformat(re["data"]) if isinstance(re["data"], str) else re["data"]
-            tipo_idx  = TIPOS_REUNIAO.index(re.get("tipo", "ENSAIO GERAL")) if re.get("tipo") in TIPOS_REUNIAO else 0
-
-            st.markdown('<div class="sec-label">Editar Dados</div>', unsafe_allow_html=True)
+            st.markdown('<div class="sec-label">Editar dados</div>', unsafe_allow_html=True)
             col1, col2 = st.columns(2)
-            e_nome  = col1.text_input("Nome / Descrição *", value=re["nome"], key="re_e_nome").strip()
-            e_data  = col2.date_input("Data *", value=dr_atual, key="re_e_data")
-            e_tipo  = col1.selectbox("Tipo", TIPOS_REUNIAO, index=tipo_idx, key="re_e_tipo")
-            e_hora  = col2.text_input("Horário", value=re.get("horario","") or "", key="re_e_hora").strip()
-            e_local = col1.text_input("Local", value=re.get("local","") or "", key="re_e_local").strip()
-            e_obs   = col2.text_area("Observações", value=re.get("observacoes","") or "", height=80, key="re_e_obs").strip()
+            er_nome = col1.text_input("Nome", value=rr["nome"], key="er_nome").strip()
+            er_tipo = col2.selectbox(
+                "Tipo", TIPOS_REUNIAO,
+                index=TIPOS_REUNIAO.index(rr["tipo"]) if rr.get("tipo") in TIPOS_REUNIAO else 0,
+                key="er_tipo"
+            )
+            er_data = col1.date_input(
+                "Data",
+                value=date.fromisoformat(rr["data"]),
+                key="er_data"
+            )
+            er_hora_str = rr.get("horario", "08:00") or "08:00"
+            try:
+                er_hora_val = datetime.strptime(er_hora_str[:5], "%H:%M").time()
+            except Exception:
+                er_hora_val = datetime.strptime("08:00", "%H:%M").time()
+            er_hora = col2.time_input("Horário", value=er_hora_val, key="er_hora")
+            er_obs  = st.text_area("Observações", value=rr.get("observacoes", "") or "", key="er_obs", height=80).strip()
 
-            if st.button("💾 Salvar Alterações", type="primary", key="btn_re_edit", use_container_width=True):
-                if not e_nome:
+            if st.button("💾 Salvar Alterações", type="primary", key="btn_edit_reun", use_container_width=True):
+                if not er_nome:
                     st.warning("⚠️ O nome não pode ficar vazio.")
                 else:
                     supabase.table("reunioes").update({
-                        "nome":        e_nome,
-                        "data":        e_data.isoformat(),
-                        "tipo":        e_tipo,
-                        "horario":     e_hora,
-                        "local":       e_local,
-                        "observacoes": e_obs,
-                    }).eq("id", re["id"]).execute()
-                    st.success(f"✅ Reunião **{e_nome}** atualizada com sucesso!")
+                        "nome": er_nome,
+                        "tipo": er_tipo,
+                        "data": str(er_data),
+                        "horario": er_hora.strftime("%H:%M"),
+                        "observacoes": er_obs,
+                    }).eq("id", rr["id"]).execute()
+                    st.success(f"✅ Reunião atualizada para **{er_nome}** em {er_data.strftime('%d/%m/%Y')}!")
                     st.rerun()
 
-    # --------------------------------------------------
-    # EXCLUIR
-    # --------------------------------------------------
+    # ---- EXCLUIR ----
     with t_del:
         if not reun:
-            st.markdown('<div class="fb-info"><p class="fb-t">Nenhuma reunião cadastrada para excluir.</p></div>', unsafe_allow_html=True)
+            st.info("Nenhuma reunião cadastrada.")
         else:
-            opts_d = [f"{r['nome']}  ({r['data']})" for r in reun]
-            sel_d  = st.selectbox("Selecione a reunião para excluir", opts_d, key="re_sel_d")
-            idx_d  = opts_d.index(sel_d)
-            re_d   = reun[idx_d]
+            opts_rd = [f"{r['nome']} ({date.fromisoformat(r['data']).strftime('%d/%m/%Y')})" for r in reun]
+            sel_rd  = st.selectbox("Reunião para excluir", opts_rd, key="sel_rd")
+            idx_rd  = opts_rd.index(sel_rd)
+            rrd     = reun[idx_rd]
 
-            qtd_pres_d = contar_presencas_por_reuniao(re_d["id"])
+            # Conta presenças vinculadas
+            n_pr = len(supabase.table("presencas").select("id").eq("meeting_id", rrd["id"]).execute().data or [])
 
-            st.markdown(
-                f'<div class="fb-erro"><p class="fb-t">⚠️ Você está prestes a excluir:'
-                f'<br><b>{re_d["nome"]}</b> ({re_d["data"]})'
-                f'<br>Esta ação irá remover também <b>{qtd_pres_d} presença(s)</b> vinculada(s).'
-                f'<br>Esta ação <u>não pode ser desfeita</u>!</p></div>',
-                unsafe_allow_html=True
-            )
+            if n_pr > 0:
+                st.markdown(
+                    f'<div class="fb-erro"><p class="fb-t">⚠️ Esta reunião possui <b>{n_pr} presença(s)</b> registradas. '
+                    f'Ao excluir, todos os registros de presença desta reunião também serão apagados!</p></div>',
+                    unsafe_allow_html=True
+                )
+            else:
+                st.markdown(
+                    f'<div class="fb-warn"><p class="fb-t">⚠️ Excluir <b>{sel_rd}</b>? Esta ação não pode ser desfeita.</p></div>',
+                    unsafe_allow_html=True
+                )
 
-            chave_confirm = f"confirm_del_reun_{re_d['id']}"
-            if chave_confirm not in st.session_state:
-                st.session_state[chave_confirm] = False
+            # Controle de confirmação por reunião selecionada
+            if "confirmar_del_reun" not in st.session_state:
+                st.session_state.confirmar_del_reun = False
+            if st.session_state.get("_del_reun_sel") != rrd["id"]:
+                st.session_state.confirmar_del_reun = False
+                st.session_state["_del_reun_sel"] = rrd["id"]
 
-            if st.session_state.get("_del_reun_sel") != sel_d:
-                for k in list(st.session_state.keys()):
-                    if k.startswith("confirm_del_reun_"):
-                        st.session_state[k] = False
-                st.session_state["_del_reun_sel"] = sel_d
-
-            if not st.session_state[chave_confirm]:
-                if st.button("🗑️ Excluir Reunião", key="btn_re_del_init", use_container_width=True):
-                    st.session_state[chave_confirm] = True
+            if not st.session_state.confirmar_del_reun:
+                if st.button("🗑️ Excluir Reunião", key="btn_del_reun", use_container_width=True):
+                    st.session_state.confirmar_del_reun = True
                     st.rerun()
             else:
-                cd1, cd2 = st.columns(2)
-                with cd1:
-                    if st.button("❌ Cancelar", key="btn_re_del_cancel", use_container_width=True):
-                        st.session_state[chave_confirm] = False
+                cc1, cc2 = st.columns(2)
+                with cc1:
+                    if st.button("❌ Cancelar", key="btn_del_reun_cancel", use_container_width=True):
+                        st.session_state.confirmar_del_reun = False
                         st.rerun()
-                with cd2:
-                    if st.button("🗑️ SIM, EXCLUIR", type="primary",
-                                 key="btn_re_del_confirm", use_container_width=True):
-                        supabase.table("presencas").delete().eq("meeting_id", re_d["id"]).execute()
-                        supabase.table("reunioes").delete().eq("id", re_d["id"]).execute()
-                        st.session_state[chave_confirm] = False
-                        st.success(f"✅ Reunião '{re_d['nome']}' excluída com sucesso!")
+                with cc2:
+                    if st.button("🗑️ SIM, EXCLUIR", key="btn_del_reun_confirm",
+                                 type="primary", use_container_width=True):
+                        # Remove presenças primeiro (FK)
+                        supabase.table("presencas").delete().eq("meeting_id", rrd["id"]).execute()
+                        supabase.table("reunioes").delete().eq("id", rrd["id"]).execute()
+                        st.session_state.confirmar_del_reun = False
+                        st.success(f"✅ Reunião '{rrd['nome']}' excluída com sucesso!")
                         st.rerun()
